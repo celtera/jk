@@ -34,6 +34,7 @@ struct value
   value(double v) noexcept : v{std::move(v)} { }
   value(bool v) noexcept : v{std::move(v)} { }
   value(string_type&& v) noexcept : v{std::move(v)} { }
+  value(const char* v) noexcept : v{string_type{v}} { }
 
   value& operator=(list_type&& v) { this->v = std::move(v); return *this; }
   value& operator=(map_type&& v) { this->v = std::move(v); return *this; }
@@ -43,6 +44,7 @@ struct value
   value& operator=(double v) { this->v = std::move(v); return *this; }
   value& operator=(bool v) { this->v = std::move(v); return *this; }
   value& operator=(string_type&& v) { this->v = std::move(v); return *this; }
+  value& operator=(const char* v) { this->v = string_type{v}; return *this; }
 
   auto& operator=(variant&& other) noexcept { v = std::move(other); return *this; }
   operator variant&() noexcept { return v; }

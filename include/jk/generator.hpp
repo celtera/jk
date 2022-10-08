@@ -1,5 +1,6 @@
 #pragma once
 #include <jk/value.hpp>
+#include <functional>
 #include <coroutine>
 
 namespace jk
@@ -95,6 +96,9 @@ private:
   handle m_coroutine;
 };
 
-using action_fun = std::function<generator<value>(const value& in)>;
+struct action_fun : std::function<generator<value>(const value& in)>
+{
+  std::string name;
+};
 
 }

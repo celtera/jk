@@ -1,37 +1,48 @@
 #pragma once
 #include <jk/value.hpp>
 #include <iostream>
+#include <sstream>
 
 namespace jk
 {
 struct print
 {
-  void operator()(const auto& t) { std::cerr << t; }
-  void operator()(const std::string& t) { std::cerr << "\"" << t << "\""; }
+  std::ostream& os;
+  print(std::ostream& s = std::cerr): os{s} { }
+
+  void operator()(const auto& t) { os << t; }
+  void operator()(const std::string& t) { os << "\"" << t << "\""; }
   void operator()(const list_type& t)
   {
-    std::cerr << "[";
+    os << "[";
     for (int i = 0; i < t.size(); i++)
     {
       visit(*this, t[i].v);
 
       if(i < t.size() - 1)
-        std::cerr << ", ";
+        os << ", ";
     }
-    std::cerr << "]";
+    os << "]";
   }
   void operator()(const map_type& t)
   {
-    std::cerr << "[";
+    os << "[";
     int k = 0;
     for (auto& e : t)
     {
-      std::cerr << e.first << ": ";
+      os << e.first << ": ";
       visit(*this, e.second.v);
       if(k++ < t.size())
-        std::cerr << ", ";
+        os << ", ";
     }
-    std::cerr << "]";
+    os << "]";
   }
 };
+
+inline std::string to_string(const jk::value& v)
+{
+  std::stringstream str;
+  visit(print{str}, v.v);
+  return str.str();
+}
 }
