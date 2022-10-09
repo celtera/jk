@@ -8,18 +8,18 @@
 namespace jk::parser {
 using namespace boost::spirit;
 
-x3::rule<struct id_action> action = "action";
-x3::rule<struct id_array> array = "array";
-x3::rule<struct id_empty_array> empty_array = "empty_array";
-x3::rule<struct id_atom> atom = "atom";
-x3::rule<struct id_pipe> pipe = "pipe";
-x3::rule<struct id_seq> seq = "seq";
-x3::rule<struct id_root> root = "root";
+static const x3::rule<struct id_action> action = "action";
+static const x3::rule<struct id_array> array = "array";
+static const x3::rule<struct id_empty_array> empty_array = "empty_array";
+static const x3::rule<struct id_atom> atom = "atom";
+static const x3::rule<struct id_pipe> pipe = "pipe";
+static const x3::rule<struct id_seq> seq = "seq";
+static const x3::rule<struct id_root> root = "root";
 // https://stackoverflow.com/questions/72278861/spirit-x3-passing-local-data-to-a-parser/72280079#72280079
 // thanks @sehe !
 #define EVENT(e) ([](auto& ctx) { x3::get<actions::handlers>(ctx).e(x3::_attr(ctx)); })
 
-const auto action_def =   array
+static const auto action_def =   array
                         | (+('.'                                                                           // .
                            >> -((+x3::alnum)[EVENT(access_member)])                                        // .foo
                            >> *(  ('[' >> x3::int_ >> ']')[EVENT(access_array)]                            // .[1]
@@ -28,16 +28,18 @@ const auto action_def =   array
                                 | x3::lit("[]")[EVENT(access_empty_array)])                                // .[]
                                )
                           );
-const auto pipe_def = (action[EVENT(finish_pipe_action)] % '|')[EVENT(finish_pipe)];// |  (action[EVENT(finish_action)] % ',')[EVENT(finish_pipe)];
-const auto seq_def = (pipe[EVENT(finish_seq_action)] % ',')[EVENT(finish_seq)];// |  (action[EVENT(finish_action)] % ',')[EVENT(finish_pipe)];
-const auto array_def = ('[' >> seq >> ']')[EVENT(create_array)];
-const auto root_def = array | action;
+static const auto pipe_def = (action[EVENT(finish_pipe_action)] % '|')[EVENT(finish_pipe)];// |  (action[EVENT(finish_action)] % ',')[EVENT(finish_pipe)];
+static const auto seq_def = (pipe[EVENT(finish_seq_action)] % ',')[EVENT(finish_seq)];// |  (action[EVENT(finish_action)] % ',')[EVENT(finish_pipe)];
+static const auto array_def = ('[' >> seq >> ']')[EVENT(create_array)];
+static const auto root_def = array | action;
 
 BOOST_SPIRIT_DEFINE(action)
 BOOST_SPIRIT_DEFINE(array)
 BOOST_SPIRIT_DEFINE(pipe)
 BOOST_SPIRIT_DEFINE(seq)
 BOOST_SPIRIT_DEFINE(root)
+
+#undef EVENT
 }
 // clang-format on
 namespace jk

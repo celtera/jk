@@ -1,7 +1,8 @@
 #pragma once
 #include <jk/value.hpp>
-#include <functional>
+
 #include <coroutine>
+#include <functional>
 
 namespace jk
 {
@@ -14,12 +15,14 @@ public:
   {
     Out data;
     generator get_return_object()
-    { return generator{handle::from_promise(*this)}; }
+    {
+      return generator{handle::from_promise(*this)};
+    }
 
     static std::suspend_always initial_suspend() noexcept { return {}; }
     static std::suspend_always final_suspend() noexcept { return {}; }
 
-    template<typename T>
+    template <typename T>
     std::suspend_always yield_value(T&& value) noexcept
     {
       data = std::move(value);
@@ -57,7 +60,8 @@ public:
     return *this;
   }
 
-  ~generator() {
+  ~generator()
+  {
     if (m_coroutine)
       m_coroutine.destroy();
   }
@@ -73,7 +77,9 @@ public:
     void operator++() noexcept { m_coroutine.resume(); }
     auto& operator*() const noexcept { return m_coroutine.promise(); }
     bool operator==(std::default_sentinel_t) const noexcept
-    { return !m_coroutine || m_coroutine.done(); }
+    {
+      return !m_coroutine || m_coroutine.done();
+    }
 
   private:
     handle m_coroutine;
@@ -84,13 +90,15 @@ public:
   {
   }
 
-  iterator begin() noexcept {
+  [[nodiscard]] iterator begin() noexcept
+  {
     if (m_coroutine)
       m_coroutine.resume();
 
     return iterator{m_coroutine};
   }
-  std::default_sentinel_t end() const noexcept { return {}; }
+
+  [[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
 
 private:
   handle m_coroutine;

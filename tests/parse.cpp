@@ -1,4 +1,4 @@
-#include <catch2/catch.hpp>
+#include <catch2/catch_all.hpp>
 #include <jk/parser.hpp>
 #include <jk/print.hpp>
 
@@ -18,13 +18,13 @@ void check_pattern(
   auto comp = jk::parse(pat);
   REQUIRE(comp);
 
-  int k = 0;
+  std::size_t k = 0;
   auto gen = jk::action::process_sequence(input, comp->current_seq);
 
   for (auto& v : gen)
   {
     REQUIRE(!v.data.v.valueless_by_exception());
-    INFO("Got: " << to_string(v.data.v))
+    INFO("Got: " << to_string(v.data.v));
 
     REQUIRE(k < expected.size()); // matcher produces too much output
     INFO(" but expected " << to_string(expected[k].v));

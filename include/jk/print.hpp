@@ -1,5 +1,6 @@
 #pragma once
 #include <jk/value.hpp>
+
 #include <iostream>
 #include <sstream>
 
@@ -8,18 +9,21 @@ namespace jk
 struct print
 {
   std::ostream& os;
-  print(std::ostream& s = std::cerr): os{s} { }
+  print(std::ostream& s = std::cerr)
+      : os{s}
+  {
+  }
 
   void operator()(const auto& t) { os << t; }
   void operator()(const std::string& t) { os << "\"" << t << "\""; }
   void operator()(const list_type& t)
   {
     os << "[";
-    for (int i = 0; i < t.size(); i++)
+    for (std::size_t i = 0; i < t.size(); i++)
     {
       visit(*this, t[i].v);
 
-      if(i < t.size() - 1)
+      if (i < t.size() - 1)
         os << ", ";
     }
     os << "]";
@@ -27,12 +31,12 @@ struct print
   void operator()(const map_type& t)
   {
     os << "[";
-    int k = 0;
+    std::size_t k = 0;
     for (auto& e : t)
     {
       os << e.first << ": ";
       visit(*this, e.second.v);
-      if(k++ < t.size())
+      if (k++ < t.size())
         os << ", ";
     }
     os << "]";
