@@ -158,4 +158,18 @@ as_array(const value& in, const std::vector<action_fun>& acts)
   DEBUG(" ------ * yielding: {}\n", to_string(value{t}));
   co_yield value{std::move(t)};
 }
+
+inline generator<value> as_object(
+    const value& in,
+    const std::vector<std::pair<std::string, action_fun>>& acts)
+{
+  DEBUG(" ---- * input: {}\n", to_string(in));
+  map_type t;
+  for (auto& [k, v] : acts)
+    for (auto res : v(in))
+      t.emplace(k, std::move(res.data));
+
+  DEBUG(" ------ * yielding: {}\n", to_string(value{t}));
+  co_yield value{std::move(t)};
+}
 }

@@ -281,3 +281,12 @@ TEST_CASE("comma in array nested")
       L{L{1, 2, 3, 4}, L{"a", "b", "c", "d"}},
       L{L{1, "a"}, L{2, "b"}});
 }
+
+TEST_CASE("create_object")
+{
+  check_pattern(" { foo: .[1] } ", L{10, 20, 30, 40}, L{M{{"foo", 20}}});
+  check_pattern(
+      " { foo: .[1], bar: [ .[2], .[3] ] } ",
+      L{10, 20, 30, 40},
+      L{M{{"foo", 20}, {"bar", L{30, 40}}}});
+}

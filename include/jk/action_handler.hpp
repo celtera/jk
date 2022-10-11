@@ -1,114 +1,94 @@
 #pragma once
 #include <boost/fusion/container.hpp>
+#include <boost/variant.hpp>
 
 #include <jk/actions.hpp>
 
+#include <iostream>
 namespace jk::actions
 {
 struct handlers
 {
   std::vector<action_fun> total;
+  std::vector<std::pair<std::string, action_fun>> current_object;
   std::vector<action_fun> current_pipe;
   std::vector<action_fun> current_seq;
   std::vector<action_fun> current_action;
 
+  action_fun collapsed_actions()
+  {
+    return {
+        [acts = std::move(current_action)](const value& in)
+        {
+          if (acts.empty())
+          {
+            return action::copy_all(in);
+          }
+          else
+          {
+            return action::collapse_pipe(in, acts);
+          }
+        },
+        "collapsed_actions"};
+  }
+
+  void create_member(const std::string& alnum)
+  {
+    current_object.emplace_back(std::make_pair(alnum, collapsed_actions()));
+  }
+
+  void create_object(auto)
+  {
+    auto act = [mems = std::move(current_object)](const value& in)
+    { return action::as_object(in, mems); };
+    current_action.push_back(action_fun{act, "create_object"});
+  }
   void finish_pipe_action(auto)
   {
-    DEBUG("finish_pipe_action\n");
-    current_pipe.push_back(
-        {{[acts = std::move(current_action)](const value& in)
-          {
-            DEBUG(" -- run_finish_pipe_action\n");
-            if (acts.empty())
-            {
-              DEBUG(" ---- copy_all! \n");
-              return action::copy_all(in);
-            }
-            else
-            {
-              DEBUG(" ---- collapse_pipe! \n");
-              return action::collapse_pipe(in, acts);
-            }
-          }},
-         "finish_pipe_action"});
+    current_pipe.push_back(collapsed_actions());
   }
 
   void finish_pipe(auto)
   {
-
     // Same than finish_seq_action
-    // DEBUG("finish_pipe\n");
   }
 
   void finish_seq_action(auto)
   {
-    DEBUG("finish_seq_action\n");
     // FIXME this should put stuff in current_seq
     // And current_seq should then iterate them
     current_seq.push_back(
         {{[acts = std::move(current_pipe)](const value& in)
           {
-            DEBUG(" -- run_finish_seq_action\n");
             if (acts.empty())
             {
-              DEBUG(" ---- copy_all! \n");
               return action::copy_all(in);
             }
             else
             {
-              DEBUG(" ---- collapse_pipe! \n");
               return action::collapse_pipe(in, acts);
             }
           }},
          "finish_seq_action"});
-    /*
-    current_seq.push_back([acts = std::move(current_action)] (const value& in) {
-      if(acts.empty())
-        return action::copy_all(in);
-      else
-        return action::collapse_pipe(in, acts);
-    });
-    */
   }
 
   void finish_seq(auto)
   {
-    DEBUG("finish_seq\n");
-    auto t = std::move(current_seq);
-    current_seq.clear();
-    current_seq.push_back(
-        {{[acts = std::move(t)](const value& in) -> generator<value>
+    auto act = action_fun{
+        [acts = std::move(current_seq)](const value& in) -> generator<value>
+        {
+          if (acts.empty())
           {
-            DEBUG(" -- run_finish_seq\n");
-            if (acts.empty())
-            {
-              DEBUG(" ---- copy_all! \n");
-              return action::copy_all(in);
-            }
-            else
-            {
-              DEBUG(" ---- process_all! \n");
-              return action::process_sequence(in, acts);
-            }
-          }},
-         "run_finish_seq"});
-    // total = std::move(current_seq);
-    /*
-    DEBUG("finish_seq\n");
-    auto t = std::move(current_seq);
+            return action::copy_all(in);
+          }
+          else
+          {
+            return action::process_sequence(in, acts);
+          }
+        },
+        "run_finish_seq"};
     current_seq.clear();
-    total.push_back([acts = std::move(t)] (const value& in) -> generator<value> {
-      return action::copy_all(in);
-    });
-    */
-    /*
-    total.push_back([acts = std::move(current_pipe)] (const value& in) {
-      if(acts.empty())
-        return action::copy_all(in);
-      else
-        return action::process_all(acts, in);
-    });
-    */
+    current_seq.push_back(std::move(act));
   }
 
   void access_array(int idx)
