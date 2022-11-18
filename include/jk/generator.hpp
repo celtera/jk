@@ -2,6 +2,9 @@
 #include <jk/value.hpp>
 #include <functional>
 
+#if __has_include(<avnd/common/coroutines.hpp>)
+#include <avnd/common/coroutines.hpp>
+#else
 #if __has_include(<coroutine>)
 #include <coroutine>
 #elif __has_include(<experimental/coroutine>)
@@ -14,6 +17,7 @@ using coroutine_handle = std::experimental::coroutine_handle<T>;
 }
 #else
 #error No coroutine support
+#endif
 #endif
 
 namespace jk
