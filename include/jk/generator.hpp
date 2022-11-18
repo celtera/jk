@@ -1,8 +1,20 @@
 #pragma once
 #include <jk/value.hpp>
-
-#include <coroutine>
 #include <functional>
+
+#if __has_include(<coroutine>)
+#include <coroutine>
+#elif __has_include(<experimental/coroutine>)
+#include <experimental/coroutine>
+namespace std
+{
+using suspend_always = std::experimental::suspend_always;
+template <typename T = void>
+using coroutine_handle = std::experimental::coroutine_handle<T>;
+}
+#else
+#error No coroutine support
+#endif
 
 namespace jk
 {
