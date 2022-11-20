@@ -53,6 +53,14 @@ TEST_CASE("parse_iteration")
       {jk::value(1), jk::value(2.5), jk::value("foo")});
 }
 
+TEST_CASE("parse_iteration_map")
+{
+  check_pattern(
+      ". [] ",
+      M{{"a", 1},{"b", 2.5}, {"c", "foo"}},
+      {jk::value(1), jk::value(2.5), jk::value("foo")});
+}
+
 TEST_CASE("parse_access")
 {
   check_pattern(". [0] ", L{1, 2.5, "foo"}, {1});

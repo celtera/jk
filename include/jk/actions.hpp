@@ -115,11 +115,21 @@ inline generator<value> iterate_array(const value& in)
 {
   DEBUG(" ---- * input: {}\n", to_string(in));
   if (auto ptr = get_if<std::vector<value>>(&in.v))
+  {
     for (auto& e : *ptr)
     {
       DEBUG(" ------ * yielding: {}\n", to_string(e));
       co_yield e;
     }
+  }
+  else if(auto ptr = get_if<map_type>(&in.v))
+  {
+    for (auto& [k, v] : *ptr)
+    {
+      DEBUG(" ------ * yielding: {}\n", to_string(v));
+      co_yield v;
+    }
+  }
 }
 
 inline generator<value>
