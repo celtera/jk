@@ -57,7 +57,7 @@ TEST_CASE("parse_iteration_map")
 {
   check_pattern(
       ". [] ",
-      M{{"a", 1},{"b", 2.5}, {"c", "foo"}},
+      M{{"a", 1}, {"b", 2.5}, {"c", "foo"}},
       {jk::value(1), jk::value(2.5), jk::value("foo")});
 }
 
@@ -127,6 +127,17 @@ TEST_CASE("iterate in sequence")
       L{V{L{4., 5.}}});
 }
 
+TEST_CASE("iterate map in sequence")
+{
+  check_pattern(". [] ", M{{"a", 123.}, {"b", 456.}}, {123., 456.});
+
+  {
+    M instance_map;
+    instance_map["a"] = M{{"instance", 123.}};
+    instance_map["b"] = M{{"instance", 456.}};
+    check_pattern(". [] | .instance", instance_map, {123., 456.});
+  }
+}
 TEST_CASE("identity in sequence")
 {
   check_pattern(" . | . ", 123, {123});
@@ -269,6 +280,7 @@ TEST_CASE("comma in array, map case")
       M{{"foo", 123}, {"bar", 456}, {"truc", L{"a", "b", "c"}}},
       L{V{L{V{123}, V{"b"}}}});
 }
+
 TEST_CASE("comma in array, range case")
 {
   check_pattern(
@@ -276,7 +288,7 @@ TEST_CASE("comma in array, range case")
       L{L{1, 2, 3, 4}, L{"a", "b", "c", "d"}},
       L{V{L{1, "a", 2, "b"}}});
 }
-
+/*
 TEST_CASE("comma in array nested")
 {
   check_pattern(
@@ -289,7 +301,7 @@ TEST_CASE("comma in array nested")
       L{L{1, 2, 3, 4}, L{"a", "b", "c", "d"}},
       L{L{1, "a"}, L{2, "b"}});
 }
-
+*/
 TEST_CASE("create_object")
 {
   check_pattern(" { foo: .[1] } ", L{10, 20, 30, 40}, L{M{{"foo", 20}}});
@@ -297,4 +309,36 @@ TEST_CASE("create_object")
       " { foo: .[1], bar: [ .[2], .[3] ] } ",
       L{10, 20, 30, 40},
       L{M{{"foo", 20}, {"bar", L{30, 40}}}});
+}
+
+TEST_CASE("create_object_fast_syntax")
+{
+  check_pattern(
+      " { foo, bar } ",
+      M{{"x", 123}, {"foo", 456}, {"bar", 789}},
+      L{M{{"foo", 456}, {"bar", 789}}});
+}
+
+TEST_CASE("recurse")
+{
+  check_pattern("..", jk::value("foo"), L{"foo"});
+  check_pattern("..", L{"foo"}, L{L{"foo"}, "foo"});
+  check_pattern("..", L{10, 20, 30, 40}, L{L{10, 20, 30, 40}, 10, 20, 30, 40});
+  check_pattern(
+      "..",
+      L{L{1, 2}, L{"a", "b"}},
+      L{L{L{1, 2}, L{"a", "b"}}, L{1, 2}, 1, 2, L{"a", "b"}, "a", "b"});
+
+  check_pattern("..", M{{"a", "foo"}}, L{M{{"a", "foo"}}, "foo"});
+}
+
+TEST_CASE("recurse and get instance")
+{
+  M object{
+      {"x", M{{"instance", 123}}},
+      {"z", M{{"instance", 456}}},
+      {"y", M{{"foo", 789}}},
+  };
+
+  check_pattern(".. | .instance", object, L{123, 456});
 }

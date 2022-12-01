@@ -37,6 +37,15 @@ struct handlers
     current_object.emplace_back(std::make_pair(alnum, collapsed_actions()));
   }
 
+  void read_member(const std::string& alnum)
+  {
+    // FIXME likely we have to use the current collapsed action?
+    auto act = action_fun{
+        {[=](const value& in) { return action::access_member(alnum, in); }},
+        "read_member"};
+    current_object.emplace_back(std::make_pair(alnum, act));
+  }
+
   void create_object(auto)
   {
     auto act = [mems = std::move(current_object)](const value& in)
@@ -138,6 +147,12 @@ struct handlers
         {{[acts = std::move(t)](const value& in) -> generator<value>
           { return action::as_array(in, acts); }},
          "create_array"});
+  }
+
+  void recurse(auto)
+  {
+    current_action.push_back(
+        {{[=](const value& in) { return action::recurse(in); }}, "recurse"});
   }
 
   void clear()

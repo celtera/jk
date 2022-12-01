@@ -24,6 +24,7 @@ static const x3::rule<struct id_root> root = "root";
 
 static const auto identifier = +(x3::alnum | '_');
 static const auto action_def = array | object
+                        | x3::lit("..")[EVENT(recurse)]                                                    // ..
                         | (+('.'                                                                           // .
                            >> -((identifier)[EVENT(access_member)])                                        // .foo
                            >> *(  ('[' >> x3::int_ >> ']')[EVENT(access_array)]                            // .[1]
@@ -34,10 +35,7 @@ static const auto action_def = array | object
                           );
 static const auto pipe_def = (action[EVENT(finish_pipe_action)] % '|')[EVENT(finish_pipe)];
 static const auto seq_def = (pipe[EVENT(finish_seq_action)] % ',')[EVENT(finish_seq)];
-
-// static const auto quoted_or_unquoted_name = (identifier | ('"' >> identifier >> '"'));
-static const auto obj_mem_def = ((identifier >> ':' >> action)[EVENT(create_member)] % ',');
-
+static const auto obj_mem_def = (((identifier >> ':' >> action)[EVENT(create_member)] | ((identifier)[EVENT(read_member)] )) % ',');
 static const auto obj_seq_def = (obj_mem % ',');
 static const auto array_def = ('[' >> seq >> ']')[EVENT(create_array)];
 static const auto object_def = ('{' >> obj_seq >> '}')[EVENT(create_object)];

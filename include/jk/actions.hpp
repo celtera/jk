@@ -40,6 +40,35 @@ inline generator<value> access_array(int index, const value& in)
       co_yield (*ptr)[index];
 }
 
+inline generator<value> recurse(const value& in)
+{
+  DEBUG(" ---- * input: {}\n", to_string(in));
+
+  config::vector<const jk::value*> st;
+  st.push_back(&in);
+
+  while (!st.empty())
+  {
+    const jk::value* cur_elt = st.back();
+    st.pop_back();
+
+    co_yield *cur_elt;
+
+    const list_type* cur_list{};
+    const map_type* cur_map{};
+
+    // Then we iterate it recursively.
+    // Fixme: this is veeeeery inefficient... but
+    // did not find a way to get recursive coroutines work
+    if ((cur_list = get_if<list_type>(&cur_elt->v)))
+      for (auto it = cur_list->rbegin(); it != cur_list->rend(); ++it)
+        st.push_back(&*it);
+    else if ((cur_map = get_if<map_type>(&cur_elt->v)))
+      for (auto it = cur_map->rbegin(); it != cur_map->rend(); ++it)
+        st.push_back(&it->second);
+  }
+}
+
 inline generator<value>
 access_array_indices(const std::vector<int>& indices, const value& in)
 {
@@ -114,17 +143,17 @@ access_member(const std::string& index, const value& in)
 inline generator<value> iterate_array(const value& in)
 {
   DEBUG(" ---- * input: {}\n", to_string(in));
-  if (auto ptr = get_if<std::vector<value>>(&in.v))
+  if (auto cur_list = get_if<std::vector<value>>(&in.v))
   {
-    for (auto& e : *ptr)
+    for (auto& e : *cur_list)
     {
       DEBUG(" ------ * yielding: {}\n", to_string(e));
       co_yield e;
     }
   }
-  else if(auto ptr = get_if<map_type>(&in.v))
+  else if (auto cur_map = get_if<map_type>(&in.v))
   {
-    for (auto& [k, v] : *ptr)
+    for (auto& [k, v] : *cur_map)
     {
       DEBUG(" ------ * yielding: {}\n", to_string(v));
       co_yield v;
