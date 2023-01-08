@@ -21,7 +21,7 @@ struct print
     os << "[";
     for (std::size_t i = 0; i < t.size(); i++)
     {
-      visit(*this, t[i].v);
+      config::variant_ns::visit(*this, t[i].v);
 
       if (i < t.size() - 1)
         os << ", ";
@@ -35,7 +35,7 @@ struct print
     for (auto& e : t)
     {
       os << e.first << ": ";
-      visit(*this, e.second.v);
+      config::variant_ns::visit(*this, e.second.v);
       if (k++ < t.size())
         os << ", ";
     }
@@ -46,7 +46,7 @@ struct print
 inline std::string to_string(const jk::value& v)
 {
   std::stringstream str;
-  visit(print{str}, v.v);
+  config::variant_ns::visit(print{str}, v.v);
   return str.str();
 }
 }

@@ -8,6 +8,7 @@
 #include <vector>
 namespace jk::config
 {
+namespace variant_ns = ::std;
 template <typename... Args>
 using variant = std::variant<Args...>;
 template <typename... Args>

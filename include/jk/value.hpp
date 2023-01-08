@@ -39,6 +39,7 @@ struct value
   value(string_type&& v) noexcept : v{std::move(v)} { }
   value(const string_type::value_type* v) noexcept : v{string_type{v}} { }
   value(void* v) = delete;
+  value(const void* v) = delete;
   value(std::nullptr_t v) = delete;
 
   value& operator=(list_type&& in) { this->v = std::move(in); return *this; }
@@ -53,6 +54,8 @@ struct value
   value& operator=(const string_type& in) { this->v = in; return *this; }
   value& operator=(string_type&& in) { this->v = std::move(in); return *this; }
   value& operator=(const char* in) { this->v = string_type{in}; return *this; }
+  value& operator=(void* in) = delete;
+  value& operator=(const void* in) = delete;
 
   auto& operator=(variant&& other) noexcept { v = std::move(other); return *this; }
   operator variant&() noexcept { return v; }
