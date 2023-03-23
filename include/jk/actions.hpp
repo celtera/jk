@@ -91,24 +91,22 @@ access_array_range(std::pair<int, int> indices, const value& in)
     auto [a, b] = indices;
     if (a == b)
     {
-      if (a >= 0 && a < std::ssize(*ptr))
-      {
-        DEBUG(" ------ * yielding: {}\n", to_string((*ptr)[a]));
-        co_yield (*ptr)[a];
-      }
+      DEBUG(" ------ * yielding: []\n");
+
+      co_yield list_type{};
     }
     else
     {
       if (a >= 0 && b >= 0)
       {
+        list_type t;
         if (a < b)
         {
           for (int index = a; index < b; ++index)
           {
             if (index < std::ssize(*ptr))
             {
-              DEBUG(" ------ * yielding: {}\n", to_string((*ptr)[index]));
-              co_yield (*ptr)[index];
+              t.push_back((*ptr)[index]);
             }
           }
         }
@@ -118,11 +116,13 @@ access_array_range(std::pair<int, int> indices, const value& in)
           {
             if (index < std::ssize(*ptr))
             {
-              DEBUG(" ------ * yielding: {}\n", to_string((*ptr)[index]));
-              co_yield (*ptr)[index];
+              t.push_back((*ptr)[index]);
             }
           }
         }
+
+        DEBUG(" ------ * yielding: {}\n", to_string(t));
+        co_yield value{std::move(t)};
       }
     }
   }

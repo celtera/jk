@@ -223,18 +223,23 @@ TEST_CASE("comma sequence ")
 
 TEST_CASE("range")
 {
-  check_pattern(".[0:2]", L{"a", "b", "c", "d", "e", "f"}, L{"a", "b"});
+  check_pattern(".[0:2]", L{"a", "b", "c", "d", "e", "f"}, L{V{L{"a", "b"}}});
 
   check_pattern(
-      "[ .[0:2] ] ", L{"a", "b", "c", "d", "e", "f"}, L{V{L{"a", "b"}}});
+      "[ .[0:2] ] ", L{"a", "b", "c", "d", "e", "f"}, L{V{L{V{L{"a", "b"}}}}});
 
   check_pattern(
       ".[][0:2]",
       L{L{"a", "b", "c"}, L{"d", "e", "f"}},
-      L{"a", "b", "d", "e"});
+      L{L{"a", "b"}, L{"d", "e"}});
 
   check_pattern(
       "[ .[][0:2] ] ",
+      L{L{"a", "b", "c"}, L{"d", "e", "f"}},
+      L{V{L{L{"a", "b"}, L{"d", "e"}}}});
+
+  check_pattern(
+      "[ .[][0:2][] ] ",
       L{L{"a", "b", "c"}, L{"d", "e", "f"}},
       L{V{L{"a", "b", "d", "e"}}});
 }
@@ -341,4 +346,21 @@ TEST_CASE("recurse and get instance")
   };
 
   check_pattern(".. | .instance", object, L{123, 456});
+}
+
+TEST_CASE("array range and iteration")
+{
+  M object{
+      {"foo",
+       L{
+           M{{"instance", 0}},
+           M{{"instance", 1}},
+           M{{"instance", 2}},
+           M{{"instance", 3}},
+           M{{"instance", 4}},
+           M{{"instance", 5}},
+           M{{"instance", 6}},
+       }}};
+
+  check_pattern("[ .foo[2:5][].instance ]", object, L{V{L{2, 3, 4}}});
 }

@@ -30,16 +30,16 @@ struct print
   }
   void operator()(const map_type& t)
   {
-    os << "[";
+    os << "{";
     std::size_t k = 0;
     for (auto& e : t)
     {
       os << e.first << ": ";
       config::variant_ns::visit(*this, e.second.v);
-      if (k++ < t.size())
+      if (++k < t.size())
         os << ", ";
     }
-    os << "]";
+    os << "}";
   }
 };
 
