@@ -47,8 +47,8 @@ struct value
   value& operator=(const list_type& in) { this->v = in; return *this; }
   value& operator=(const map_type& in) { this->v = in; return *this; }
   value& operator=(int64_t in) { this->v = in; return *this; }
-  value& operator=(int in) { this->v = in; return *this; }
-  value& operator=(float in) { this->v = in; return *this; }
+  value& operator=(int in) { this->v = (int64_t)in; return *this; }
+  value& operator=(float in) { this->v = (double)in; return *this; }
   value& operator=(double in) { this->v = in; return *this; }
   value& operator=(bool in) { this->v = in; return *this; }
   value& operator=(const string_type& in) { this->v = in; return *this; }
