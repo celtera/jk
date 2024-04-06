@@ -22,7 +22,17 @@ static const x3::rule<struct id_root> root = "root";
 // thanks @sehe !
 #define EVENT(e) ([](auto& ctx) { x3::get<actions::handlers>(ctx).e(x3::_attr(ctx)); })
 
-static const auto identifier = +(x3::alnum | '_');
+// https://stackoverflow.com/questions/74031183/cleanest-way-to-handle-both-quoted-and-unquoted-strings-in-spirit-x3
+// https://stackoverflow.com/questions/33578440/boostspirit-alnum-p-and-hyphen
+template <typename T> struct as_type {
+  auto operator()(auto p) const { return x3::rule<struct Tag, T>{} = p; }
+};
+static constexpr as_type<std::string> as_string{};
+
+static const auto identifier_char = x3::alnum | x3::char_('_');
+static const auto unquoted_identifier  = +identifier_char;
+static const auto quoted_identifier  = '"' >> x3::no_skip[*~x3::char_('"')] >> '"';
+static const auto identifier    = as_string(unquoted_identifier | quoted_identifier);
 static const auto action_def = array | object
                         | x3::lit("..")[EVENT(recurse)]                                                    // ..
                         | (+('.'                                                                           // .
@@ -60,11 +70,11 @@ std::optional<actions::handlers> parse(std::string_view str)
   actions::handlers r;
   auto first = str.begin();
   auto last = str.end();
-  bool res = phrase_parse(
-      first,
-      last,
-      boost::spirit::x3::with<actions::handlers>(r)[parser::seq_def],
-      boost::spirit::x3::ascii::space);
+  bool res = phrase_parse(first,
+                          last,
+                          boost::spirit::x3::with<actions::handlers>(r)[parser::seq_def],
+                          boost::spirit::x3::ascii::space,
+                          boost::spirit::x3::skip_flag::post_skip);
 
   if (!res || first != last)
     return std::nullopt;

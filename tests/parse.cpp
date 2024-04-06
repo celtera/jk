@@ -1,8 +1,13 @@
 #include <catch2/catch_all.hpp>
+#include <catch2/catch_message.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <cstddef>
+#include <jk/actions.hpp>
 #include <jk/parser.hpp>
 #include <jk/print.hpp>
-
-#include <cassert>
+#include <jk/value.hpp>
+#include <string_view>
+#include <vector>
 
 void check_pattern(
     std::string_view pat,
@@ -212,6 +217,14 @@ TEST_CASE("member access")
          L{M{{"foo", 0.5}, {"bar", L{L{1, 2, 3}, L{4, 5, 6}, L{7, 8, 9}}}}}},
         {"bar", 789}},
       {3, 6, 9});
+}
+
+TEST_CASE("member access with special chars")
+{
+    check_pattern(".foo_bar", M{{"a", 123}, {"foo_bar", 456}, {"bar", 789}}, {456});
+    check_pattern(".\"foo_bar\"", M{{"a", 123}, {"foo_bar", 456}, {"bar", 789}}, {456});
+    check_pattern(".\"foo.bar\"", M{{"a", 123}, {"foo.bar", 456}, {"bar", 789}}, {456});
+    check_pattern(".\"foo bar\"", M{{"a", 123}, {"foo bar", 456}, {"bar", 789}}, {456});
 }
 
 TEST_CASE("comma sequence ")
