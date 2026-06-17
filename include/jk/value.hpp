@@ -1,6 +1,9 @@
 #pragma once
 #include <jk/config.hpp>
 
+#include <cstddef>
+#include <utility>
+
 namespace jk
 {
 //! jq's null. First alternative on purpose: a default-constructed value is
@@ -73,7 +76,31 @@ struct value
   operator variant&&() && noexcept { return std::move(v); }
 
   bool operator==(const value& other) const noexcept = default;
+
+  // Model avnd::variant_ish: the Avendish back-end bindings (pd / max / wasm)
+  // treat a value output as a variant (concept check + unqualified visit). Expose
+  // the variant interface so jk::value is usable directly, without libossia.
+  std::size_t index() const noexcept { return v.index(); }
+  bool valueless_by_exception() const noexcept { return v.valueless_by_exception(); }
 };
+
+// ADL hook for the bindings' unqualified visit(f, value): forward to the
+// configured variant's visit on the wrapped member.
+template <typename F>
+inline decltype(auto) visit(F&& f, value& self)
+{
+  return config::variant_ns::visit(std::forward<F>(f), self.v);
+}
+template <typename F>
+inline decltype(auto) visit(F&& f, const value& self)
+{
+  return config::variant_ns::visit(std::forward<F>(f), self.v);
+}
+template <typename F>
+inline decltype(auto) visit(F&& f, value&& self)
+{
+  return config::variant_ns::visit(std::forward<F>(f), std::move(self.v));
+}
 
 // clang-format on
 }
