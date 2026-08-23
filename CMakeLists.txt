@@ -23,3 +23,21 @@ add_executable(execute tests/execute.cpp)
 target_link_libraries(execute PRIVATE jk fmt)
 add_executable(parse_test tests/parse.cpp)
 target_link_libraries(parse_test PRIVATE jk Catch2::Catch2WithMain fmt)
+
+# Conformance against jq itself: tests/cases.txt is run through the real jq by
+# tests/gen-cases.sh, and the generated table is what these compare against.
+add_executable(conformance tests/conformance.cpp)
+target_link_libraries(conformance PRIVATE jk)
+add_test(NAME conformance COMMAND conformance)
+
+# The official jq suite (jq's own tests/jq.test). Programs jk does not
+# implement are reported as unsupported; a mismatch is a real divergence.
+add_executable(jq_suite tests/jq_suite.cpp)
+target_link_libraries(jq_suite PRIVATE jk)
+
+# Robustness and cost. jk runs on a realtime execution thread, so this asserts
+# that nothing but values or a jk::error can reach the caller, and reports what
+# a message costs.
+add_executable(robustness tests/robustness.cpp)
+target_link_libraries(robustness PRIVATE jk)
+add_test(NAME robustness COMMAND robustness)

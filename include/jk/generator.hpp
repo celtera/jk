@@ -2,6 +2,8 @@
 #include <jk/value.hpp>
 
 #include <functional>
+#include <exception>
+#include <utility>
 
 #if __has_include(<avnd/common/coroutines.hpp>)
 #include <avnd/common/coroutines.hpp>
@@ -49,7 +51,11 @@ public:
     void return_void() noexcept { }
     void await_transform() = delete;
 
-    [[noreturn]] static void unhandled_exception() { std::abort(); }
+    //! Capture rather than abort. A jq type error has to unwind out of the
+    //! program - and a coroutine that aborts on any exception would take the
+    //! host process down with it on something as ordinary as bad_alloc.
+    std::exception_ptr exception{};
+    void unhandled_exception() noexcept { exception = std::current_exception(); }
   };
 
   using handle = std::coroutine_handle<promise_type>;
@@ -91,7 +97,20 @@ public:
     {
     }
 
-    void operator++() noexcept { m_coroutine.resume(); }
+    void operator++()
+    {
+      m_coroutine.resume();
+      rethrow_if_failed();
+    }
+
+    //! The coroutine stops at its final suspend after throwing, so the
+    //! exception has to be surfaced when the consumer next looks at it.
+    void rethrow_if_failed() const
+    {
+      if(m_coroutine && m_coroutine.done())
+        if(auto& e = m_coroutine.promise().exception)
+          std::rethrow_exception(std::exchange(e, {}));
+    }
     auto& operator*() const noexcept { return m_coroutine.promise(); }
     bool operator==(std::default_sentinel_t) const noexcept
     {
@@ -107,12 +126,14 @@ public:
   {
   }
 
-  [[nodiscard]] iterator begin() noexcept
+  [[nodiscard]] iterator begin()
   {
     if (m_coroutine)
       m_coroutine.resume();
 
-    return iterator{m_coroutine};
+    iterator it{m_coroutine};
+    it.rethrow_if_failed();
+    return it;
   }
 
   [[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
