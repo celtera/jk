@@ -1,0 +1,329 @@
+# Conformance cases: <program> TAB <input JSON>
+# Expectations are generated from jq itself by gen-cases.sh; never edited by hand.
+
+# --- identity, navigation ---
+.	{"a":1}
+.a	{"a":1}
+.a.b	{"a":{"b":2}}
+.a.b	{"a":1}
+.missing	{"a":1}
+.a.b.c	{"a":1}
+."odd key"	{"odd key":7}
+.[0]	[1,2,3]
+.[2]	[1,2,3]
+.[5]	[1,2,3]
+.[-1]	[1,2,3]
+.[-2]	[1,2,3]
+.[-9]	[1,2,3]
+.[0]	[]
+.[]	[1,2,3]
+.[]	{"a":1,"b":2}
+.[0,2]	[1,2,3,4]
+[.[]]	[1,2]
+..	[1,[2]]
+
+# --- slices ---
+.[1:3]	[1,2,3,4]
+.[3:1]	[1,2,3,4]
+.[0:99]	[1,2,3]
+.[-99:99]	[1,2,3]
+.[2:]	[1,2,3,4]
+.[:2]	[1,2,3,4]
+.[1:3]	"abcdef"
+
+# --- precedence: comma binds tighter than pipe ---
+[ .[] | .a, .b ]	[{"a":1,"b":2},{"a":3,"b":4}]
+[ .[] | .a ]	[{"a":1,"b":2}]
+[ 1, 2 | . ]	null
+[ (1,2) | (.+10) ]	null
+
+# --- literals ---
+1	null
+-3	null
+2.5	null
+"hi"	null
+true	null
+false	null
+null	null
+[1,2]	null
+[]	null
+{}	null
+{"a":1}	null
+{a: 1, b: "x", c: true, d: null}	null
+{a: .x}	{"x":9}
+{a}	{"a":5,"b":6}
+{a, b}	{"a":5,"b":6}
+{"key with space": 1}	null
+{(.k): 1}	{"k":"dyn"}
+[ {a: (1,2)} ]	null
+[ {a: .[]} ]	[1,2]
+
+# --- arithmetic ---
+1 + 2	null
+1 - 0.5	null
+2 * 3	null
+5 / 2	null
+4 / 2	null
+5 % 2	null
+"a" + "b"	null
+[1] + [2]	null
+{"a":1} + {"b":2}	null
+null + 1	null
+1 + null	null
+[1,2,3] - [2]	null
+"ab" * 2	null
+1 + "a"	null
+.a + .b	{"a":1,"b":2}
+.x * 4	{"x":0.25}
+-(.x)	{"x":3}
+[ (1,2) + (10,20) ]	null
+[ (1,2) * (10,20) ]	null
+
+# --- comparisons and booleans ---
+1 < 2	null
+2 < 1	null
+1 == 1.0	null
+"1" == 1	null
+null == null	null
+null < false	null
+[1] < [2]	null
+{"a":1} == {"a":1}	null
+"a" < "b"	null
+1 != 2	null
+2 >= 2	null
+2 > 3	null
+true and true	null
+true and false	null
+false or true	null
+false or false	null
+(1 > 0) and (2 > 1)	null
+
+# --- truthiness ---
+[ (1,null,false,0,"",[]) | select(.) ]	null
+
+# --- select ---
+[ .[] | select(. > 1) ]	[1,2,3]
+[ .[] | select(.a == 1) ]	[{"a":1},{"a":2}]
+[ .[] | select(.conf > 0.8) ]	[{"conf":0.9},{"conf":0.5}]
+[ .[] | select(.state == "confirmed") | .id ]	[{"id":1,"state":"confirmed"},{"id":2,"state":"coasting"}]
+
+# --- alternative and optional ---
+.a // 1	{"a":null}
+.a // 1	{"a":5}
+.a // 1	{}
+.a // 1	{"a":false}
+(1,null,2) // 9	null
+(null,false) // 9	null
+.a?	1
+[ .[]? ]	1
+[ .a? ]	[1]
+
+# --- builtins, no argument ---
+length	[1,2,3]
+length	{"a":1}
+length	"abc"
+length	null
+length	-5
+type	1
+type	"a"
+type	null
+type	[]
+type	{}
+type	true
+not	false
+not	true
+not	null
+not	1
+keys	{"b":1,"a":2}
+keys	[5,6]
+values	{"a":1,"b":2}
+to_entries	{"a":1}
+add	[1,2,3]
+add	[]
+add	["a","b"]
+min	[3,1,2]
+max	[3,1,2]
+min	[]
+max	[]
+sort	[3,1,2]
+sort	["b","a"]
+sort	[null,true,1,"a",[1],{"a":1}]
+unique	[1,1,2]
+reverse	[1,2,3]
+flatten	[1,[2,[3]]]
+first	[1,2]
+last	[1,2]
+first	[]
+tostring	1
+tostring	"a"
+tostring	[1]
+tonumber	"2.5"
+tonumber	"12x"
+tonumber	3
+floor	1.7
+ceil	1.2
+round	1.5
+fabs	-2
+sqrt	9
+[ empty ]	1
+any	[false,true]
+any	[false,false]
+all	[true,true]
+all	[true,false]
+
+# --- builtins with an argument ---
+map(. + 1)	[1,2]
+map(.a)	[{"a":1},{"a":2}]
+sort_by(.a)	[{"a":2},{"a":1}]
+sort_by(.a)	[{"a":"b"},{"a":"a"}]
+min_by(.a)	[{"a":2},{"a":1}]
+max_by(.a)	[{"a":2},{"a":1}]
+group_by(.a)	[{"a":1},{"a":1},{"a":2}]
+has("a")	{"a":1}
+has("z")	{"a":1}
+has(1)	[5,6]
+has(9)	[5,6]
+join(",")	["a","b"]
+join(",")	[1,2]
+join(",")	[]
+split(",")	"a,b"
+split(",")	"a"
+
+# --- combinations that matter for score ---
+[ .[] | select(.confidence > 0.8) | .id ]	[{"id":1,"confidence":0.95},{"id":2,"confidence":0.42}]
+[ .[] | {id, x: .position[0]} ]	[{"id":1,"position":[0.2,0.8]}]
+[ .[] | .position[0] * 4 ]	[{"position":[0.25,0]}]
+map(select(.state == "confirmed")) | length	[{"state":"confirmed"},{"state":"coasting"}]
+[ .[] | select(.a) | .a ]	[{"a":1},{"b":2},{"a":3}]
+sort_by(.confidence) | reverse | .[0:2]	[{"confidence":0.1},{"confidence":0.9},{"confidence":0.5}]
+.a.b // "default"	{}
+[ .[] | .name // "anon" ]	[{"name":"x"},{}]
+
+# --- errors ---
+.a	1
+.[0]	{"a":1}
+.[]	1
+1 + "a"	null
+length	true
+keys	1
+add	1
+map(.)	1
+sqrt	"a"
+
+# --- precedence interactions ---
+1 + 2 * 3	null
+(1 + 2) * 3	null
+2 * 3 + 1	null
+1 - 2 - 3	null
+8 / 4 / 2	null
+.a + .b * 2	{"a":1,"b":3}
+1 + 2 == 3	null
+1 < 2 and 3 < 4	null
+false or 1 > 0	null
+.a == 1 and .b == 2	{"a":1,"b":2}
+[ 1, 2 | . + 1 ]	null
+[ .[] | . * 2, . * 3 ]	[1,2]
+.a // .b // 3	{}
+.a // .b // 3	{"b":7}
+1 + -2	null
+- .a	{"a":5}
+-1 + 2	null
+
+# --- deeper navigation ---
+.a[0].b	{"a":[{"b":1}]}
+.a[0].b	{"a":[]}
+[ .a[].b ]	{"a":[{"b":1},{"b":2}]}
+.["a"]	{"a":1}
+.[.k]	{"k":"a","a":42}
+.a["b"]	{"a":{"b":3}}
+[ .. ]	{"a":{"b":1}}
+[ .. | numbers? ]	null
+.[]	[]
+[ .[] ]	{}
+
+# --- object construction, more ---
+{a: 1} | .a	null
+{a: .b} | .a	{"b":2}
+[ {a: 1, b: (2,3)} ]	null
+[ {(.k1,.k2): 1} ]	{"k1":"x","k2":"y"}
+{a: [1,2]}	null
+{a: {b: 1}}	null
+{a: (.[] | . + 1)}	[1]
+[ {a: (.[] | . + 1)} ]	[1,2]
+{}	{"x":1}
+{a: null}	null
+
+# --- strings ---
+"a" + "b" + "c"	null
+"x" * 3	null
+"x" * 0	null
+"a,b,c" / ","	null
+split(",")	"a,,b"
+join("-")	["a","b","c"]
+join("-")	[null,"a"]
+length	""
+"abc" | length	null
+tostring	null
+tostring	true
+tostring	{"a":1}
+
+# --- select / map / filter chains ---
+[ .[] | select(.a > 1) | .a ]	[{"a":1},{"a":2},{"a":3}]
+map(select(. > 1))	[1,2,3]
+map(. * 2) | add	[1,2,3]
+[ .[] | select(.a == null) ]	[{"a":null},{"a":1}]
+[ .[] | select(has("a")) ]	[{"a":1},{"b":2}]
+map(.a) | unique	[{"a":2},{"a":1},{"a":2}]
+sort_by(.a) | map(.b)	[{"a":2,"b":"x"},{"a":1,"b":"y"}]
+group_by(.a) | map(length)	[{"a":1},{"a":1},{"a":2}]
+map(select(.a)) | length	[{"a":true},{"a":false},{"a":null}]
+
+# --- optional and errors ---
+[ .a?, 1 ]	1
+[ (.a, 1)? ]	1
+[ .[]? ]	{"a":1}
+.a? // "d"	1
+(1/0)?	null
+[ .[] | .a? ]	[{"a":1},2]
+first	[]
+last	[]
+min_by(.a)	[]
+max_by(.a)	[]
+add	[null]
+flatten	[]
+unique	[]
+sort	[]
+reverse	[]
+to_entries	{}
+
+# --- numbers ---
+1.5 + 1.5	null
+0.1 + 0.2	null
+-0.5	null
+3 / 2	null
+7 % 3	null
+-7 % 3	null
+floor	-1.5
+ceil	-1.5
+round	-1.5
+round	2.5
+sqrt	2
+tonumber	"-4"
+length	3.7
+
+# --- type filters ---
+[ .[] | numbers ]	[1,"a",null,true,[],{}]
+[ .[] | strings ]	[1,"a"]
+[ .[] | nulls ]	[1,null]
+[ .[] | booleans ]	[1,true,false]
+[ .[] | arrays ]	[1,[2]]
+[ .[] | objects ]	[1,{"a":1}]
+[ .[] | scalars ]	[1,[],{},"a"]
+[ .[] | iterables ]	[1,[],{},"a"]
+[ .. | numbers ]	{"a":1,"b":{"c":2}}
+[ .. | strings ]	{"a":"x","b":["y"]}
+
+# --- string repeat edges ---
+"x" * -1	null
+"x" * 1	null
+"x" * 2.7	null

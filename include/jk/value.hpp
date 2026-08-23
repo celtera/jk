@@ -3,12 +3,21 @@
 
 namespace jk
 {
+//! jq's null. First alternative on purpose: a default-constructed value is
+//! then null, which is what jq produces for a missing key, an out-of-range
+//! index, or an empty input - not the integer zero it used to default to.
+struct null_t
+{
+  bool operator==(const null_t&) const noexcept = default;
+  auto operator<=>(const null_t&) const noexcept = default;
+};
+
 struct value;
 using string_type = config::string;
 using list_type = config::vector<value>;
 using map_type = config::map<string_type, value>;
 using variant
-    = config::variant<int64_t, double, bool, string_type, list_type, map_type>;
+    = config::variant<null_t, int64_t, double, bool, string_type, list_type, map_type>;
 
 // clang-format off
 struct value
@@ -30,6 +39,7 @@ struct value
   value(const map_type& v) noexcept : v{v} { }
   value(list_type&& v) noexcept : v{std::move(v)} { }
   value(map_type&& v) noexcept : v{std::move(v)} { }
+  value(null_t v) noexcept : v{v} { }
   value(int64_t v) noexcept : v{v} { }
   value(int v) noexcept : v{int64_t(v)} { }
   value(float v) noexcept : v{static_cast<double>(v)} { }
