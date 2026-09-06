@@ -42,7 +42,7 @@ BreakBeforeBraces: Allman
 BreakBeforeTernaryOperators: true
 BreakConstructorInitializersBeforeComma: true
 ColumnLimit: 79
-CommentPragmas: '^ IWYU pragma:'
+CommentPragmas: '^ (IWYU pragma:|clang-format:)'
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: true
@@ -75,7 +75,6 @@ SpaceBeforeCpp11BracedList: false
 Standard: c++20
 TabWidth: 2
 UseTab: Never
-CommentPragmas: '^ clang-format:'
 StatementMacros: ['E_SIGNAL', 'PROPERTY', 'W_SIGNAL', 'W_PROPERTY', 'W_SLOT']
 SortIncludes: true
 IncludeBlocks: Regroup

@@ -1,3 +1,4 @@
+#include <jk/actions.hpp>
 #include <jk/parser.hpp>
 #include <jk/print.hpp>
 
@@ -12,9 +13,9 @@ int main()
 
   if (auto res = parse("., ., ."))
   {
-    for (auto& v : action::process_sequence(input, res->total))
+    for (auto& v : action::process_sequence(input, res->current_seq))
     {
-      visit(print{}, v.data.v);
+      visit(print{}, v.get().v);
       std::cerr << "\n";
     }
   }

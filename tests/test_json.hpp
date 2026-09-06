@@ -12,7 +12,7 @@
 
 namespace jk_test
 {
-inline void append_utf8(std::string& out, unsigned cp)
+inline void append_utf8(jk::string_type& out, unsigned cp)
 {
   if(cp < 0x80)
   {
@@ -79,10 +79,10 @@ struct json_reader
     return (unsigned)std::stoul(std::string{s.substr(at, 4)}, nullptr, 16);
   }
 
-  std::string str()
+  jk::string_type str()
   {
     ws();
-    std::string out;
+    jk::string_type out;
     if(i >= s.size() || s[i] != '"')
       throw std::runtime_error{"expected string"};
     i++;

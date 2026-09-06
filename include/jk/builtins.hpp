@@ -1,4 +1,5 @@
 #pragma once
+#include <jk/actions.hpp>
 #include <jk/generator.hpp>
 #include <jk/ops.hpp>
 #include <jk/print.hpp>
@@ -20,9 +21,9 @@ namespace jk::action
 {
 
 //! Yield a fixed value, ignoring the input. What a literal compiles to.
-inline generator<value> constant(value v)
+inline generator<value> constant(const value& v)
 {
-  co_yield std::move(v);
+  co_yield v;
 }
 
 /**
@@ -35,20 +36,35 @@ template <typename Op>
 generator<value>
 binary(const value& in, const action_fun& lhs, const action_fun& rhs, Op op)
 {
-  for(auto& r : rhs(in))
-    for(auto& l : lhs(in))
-      co_yield op(l.data, r.data);
+  for (auto& r : rhs(in))
+    for (auto& l : lhs(in))
+      co_yield op(l.get(), r.get());
 }
 
 //! Comparison operators, which are the same shape as arithmetic but fold the
 //! three-way result down to a boolean.
 template <typename Pred>
-generator<value>
-comparison(const value& in, const action_fun& lhs, const action_fun& rhs, Pred pred)
+generator<value> comparison(
+    const value& in,
+    const action_fun& lhs,
+    const action_fun& rhs,
+    Pred pred)
 {
-  for(auto& r : rhs(in))
-    for(auto& l : lhs(in))
-      co_yield value{bool(pred(compare(l.data, r.data)))};
+  for (auto& r : rhs(in))
+    for (auto& l : lhs(in))
+      co_yield value{bool(pred(compare(l.get(), r.get())))};
+}
+
+//! Equality is distinct from ordering: NaN sorts but never equals itself.
+inline generator<value> equality(
+    const value& in,
+    const action_fun& lhs,
+    const action_fun& rhs,
+    bool negate = false)
+{
+  for (auto& r : rhs(in))
+    for (auto& l : lhs(in))
+      co_yield value{equal(l.get(), r.get()) != negate};
 }
 
 //! `and` / `or`. Short-circuits per left-hand value, as jq does: the right
@@ -56,63 +72,49 @@ comparison(const value& in, const action_fun& lhs, const action_fun& rhs, Pred p
 inline generator<value>
 logical_and(const value& in, const action_fun& lhs, const action_fun& rhs)
 {
-  for(auto& l : lhs(in))
+  for (auto& l : lhs(in))
   {
-    if(!truthy(l.data))
+    if (!truthy(l.get()))
       co_yield value{false};
     else
-      for(auto& r : rhs(in))
-        co_yield value{truthy(r.data)};
+      for (auto& r : rhs(in))
+        co_yield value{truthy(r.get())};
   }
 }
 
 inline generator<value>
 logical_or(const value& in, const action_fun& lhs, const action_fun& rhs)
 {
-  for(auto& l : lhs(in))
+  for (auto& l : lhs(in))
   {
-    if(truthy(l.data))
+    if (truthy(l.get()))
       co_yield value{true};
     else
-      for(auto& r : rhs(in))
-        co_yield value{truthy(r.data)};
+      for (auto& r : rhs(in))
+        co_yield value{truthy(r.get())};
   }
 }
 
 /**
  * @brief `a // b`.
  *
- * Yields every truthy output of the left. Only if it produced none - including
- * because it errored - does the right run. This is jq's defaulting idiom:
- * `.gain // 1.0`.
- *
- * Streamed, not collected: the common case is a single value, and buffering
- * would allocate on every message. The try has to enclose the loop rather than
- * each step, because a deferred error surfaces from begin() as readily as from
- * the increment.
+ * Yields every truthy output of the left. Only if it finishes without one
+ * does the right run. Errors propagate, including after preceding outputs.
  */
 inline generator<value>
 alternative(const value& in, const action_fun& lhs, const action_fun& rhs)
 {
   bool produced = false;
-  try
-  {
-    for(auto& l : lhs(in))
+  for (auto& l : lhs(in))
+    if (truthy(l.get()))
     {
-      if(truthy(l.data))
-      {
-        produced = true;
-        co_yield l.data;
-      }
+      produced = true;
+      co_yield l;
     }
-  }
-  catch(const error&)
-  {
-  }
 
-  if(!produced)
-    for(auto& r : rhs(in))
-      co_yield std::move(r.data);
+  if (!produced)
+    for (auto& r : rhs(in))
+      co_yield r;
 }
 
 //! `expr?`: stop at an error instead of propagating it. Whatever was produced
@@ -121,30 +123,67 @@ inline generator<value> optional(const value& in, const action_fun& act)
 {
   try
   {
-    for(auto& v : act(in))
-      co_yield v.data;
+    for (auto& v : act(in))
+      co_yield v;
   }
-  catch(const error&)
+  catch (const error&)
   {
   }
+}
+
+inline generator<value> conditional(
+    const value& in,
+    const action_fun& cond,
+    const action_fun& yes,
+    const action_fun& no)
+{
+  for (auto& result : cond(in))
+    for (auto& output : (truthy(result.get()) ? yes : no)(in))
+      co_yield output;
+}
+
+inline generator<value>
+try_catch(const value& in, const action_fun& body, const action_fun& handler)
+{
+  // C++ forbids co_yield inside a catch handler.
+  value payload;
+  bool failed = false;
+  try
+  {
+    for (auto& output : body(in))
+      co_yield output;
+  }
+  catch (const error& e)
+  {
+    payload = e.payload;
+    failed = true;
+  }
+  if (failed)
+    for (auto& output : handler(payload))
+      co_yield output;
 }
 //! `select(f)`: pass the input through when f says so.
 inline generator<value> select(const value& in, const action_fun& pred)
 {
-  for(auto& p : pred(in))
-    if(truthy(p.data))
+  for (auto& p : pred(in))
+    if (truthy(p.get()))
       co_yield in;
 }
 
 //! Unary minus.
 inline generator<value> negate(const value& in, const action_fun& act)
 {
-  for(auto& v : act(in))
+  for (auto& v : act(in))
   {
-    if(!is_number(v.data))
-      throw error{std::string{type_name(v.data)} + " (" + brief(v.data)
-                  + ") cannot be negated"};
-    co_yield number(-as_number(v.data));
+    if (!is_number(v.get()))
+      throw error{
+          std::string{type_name(v.get())} + " (" + brief(v.get())
+          + ") cannot be negated"};
+    if (const auto* integer = get_if<int64_t>(&v.get().v);
+        integer && *integer != std::numeric_limits<int64_t>::min())
+      co_yield value{-*integer};
+    else
+      co_yield number(-as_number(v.get()));
   }
 }
 
@@ -152,7 +191,7 @@ inline generator<value> negate(const value& in, const action_fun& act)
 
 inline generator<value> b_length(const value& in)
 {
-  switch(kind_of(in))
+  switch (kind_of(in))
   {
     case kind::null:
       co_yield value{int64_t(0)};
@@ -162,12 +201,13 @@ inline generator<value> b_length(const value& in)
     case kind::number:
       co_yield number(std::abs(as_number(in)));
       break;
-    case kind::string: {
+    case kind::string:
+    {
       // jq counts codepoints, not bytes: a two-byte UTF-8 char is length 1.
       const auto& s = *get_if<string_type>(&in.v);
       int64_t n = 0;
-      for(unsigned char c : s)
-        if((c & 0xC0) != 0x80)
+      for (unsigned char c : s)
+        if ((c & 0xC0) != 0x80)
           ++n;
       co_yield value{n};
       break;
@@ -194,20 +234,21 @@ inline generator<value> b_not(const value& in)
 inline generator<value> b_keys(const value& in)
 {
   list_type r;
-  if(auto m = get_if<map_type>(&in.v))
+  if (auto m = get_if<map_type>(&in.v))
   {
     // The map is already ordered by key, which is the order jq returns.
-    for(const auto& [k, v] : *m)
+    for (const auto& [k, v] : *m)
       r.push_back(value{k});
   }
-  else if(auto l = get_if<list_type>(&in.v))
+  else if (auto l = get_if<list_type>(&in.v))
   {
-    for(std::size_t i = 0; i < l->size(); i++)
+    for (std::size_t i = 0; i < l->size(); i++)
       r.push_back(value{int64_t(i)});
   }
   else
   {
-    throw error{std::string{type_name(in)} + " (" + brief(in) + ") has no keys"};
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in) + ") has no keys"};
   }
   co_yield value{std::move(r)};
 }
@@ -216,35 +257,49 @@ inline generator<value> b_keys(const value& in)
 //! it is null. It does *not* extract an object's values; that is `.[]`.
 inline generator<value> b_values(const value& in)
 {
-  if(!get_if<null_t>(&in.v))
+  if (!get_if<null_t>(&in.v))
     co_yield in;
 }
 
 //! `to_entries`: {"a":1} -> [{"key":"a","value":1}]
 inline generator<value> b_to_entries(const value& in)
 {
-  auto m = get_if<map_type>(&in.v);
-  if(!m)
-    throw error{std::string{type_name(in)} + " (" + brief(in)
-                + ") has no keys"};
   list_type r;
-  for(const auto& [k, v] : *m)
+  if (auto m = get_if<map_type>(&in.v))
   {
-    map_type e;
-    e["key"] = value{k};
-    e["value"] = v;
-    r.push_back(value{std::move(e)});
+    r.reserve(m->size());
+    for (const auto& [k, v] : *m)
+    {
+      map_type e;
+      e["key"] = value{k};
+      e["value"] = v;
+      r.push_back(value{std::move(e)});
+    }
   }
+  else if (auto l = get_if<list_type>(&in.v))
+  {
+    r.reserve(l->size());
+    for (std::size_t i = 0; i < l->size(); ++i)
+    {
+      map_type e;
+      e["key"] = value{int64_t(i)};
+      e["value"] = (*l)[i];
+      r.push_back(value{std::move(e)});
+    }
+  }
+  else
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in) + ") has no keys"};
   co_yield value{std::move(r)};
 }
 
 inline generator<value> b_add(const value& in)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
+  if (!l)
     throw error{"Cannot iterate over " + std::string{type_name(in)}};
   value acc{null_t{}};
-  for(const auto& e : *l)
+  for (const auto& e : *l)
     acc = add(acc, e);
   co_yield std::move(acc);
 }
@@ -252,17 +307,17 @@ inline generator<value> b_add(const value& in)
 inline generator<value> b_min(const value& in)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
+  if (!l)
     throw error{"Cannot iterate over " + std::string{type_name(in)}};
-  if(l->empty())
+  if (l->empty())
   {
     co_yield value{null_t{}};
   }
   else
   {
     const value* best = &(*l)[0];
-    for(const auto& e : *l)
-      if(compare(e, *best) < 0)
+    for (const auto& e : *l)
+      if (compare(e, *best) < 0)
         best = &e;
     co_yield *best;
   }
@@ -271,9 +326,9 @@ inline generator<value> b_min(const value& in)
 inline generator<value> b_max(const value& in)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
+  if (!l)
     throw error{"Cannot iterate over " + std::string{type_name(in)}};
-  if(l->empty())
+  if (l->empty())
   {
     co_yield value{null_t{}};
   }
@@ -281,37 +336,68 @@ inline generator<value> b_max(const value& in)
   {
     // Last of equals, as jq does.
     const value* best = &(*l)[0];
-    for(const auto& e : *l)
-      if(compare(e, *best) >= 0)
+    for (const auto& e : *l)
+      if (compare(e, *best) >= 0)
         best = &e;
     co_yield *best;
   }
 }
 
+//! Preserve equal-key order without std::stable_sort's hidden heap buffer.
+template <typename Compare>
+inline config::vector<std::size_t>
+stable_indices(std::size_t size, Compare compare)
+{
+  config::vector<std::size_t> indices;
+  indices.reserve(size);
+  for (std::size_t i = 0; i < size; ++i)
+    indices.push_back(i);
+  std::sort(
+      indices.begin(),
+      indices.end(),
+      [&](auto a, auto b)
+      {
+        const int order = compare(a, b);
+        return order < 0 || (order == 0 && a < b);
+      });
+  return indices;
+}
+
+inline list_type sorted_values(const list_type& input)
+{
+  auto order = stable_indices(
+      input.size(),
+      [&](auto a, auto b) { return compare(input[a], input[b]); });
+  list_type output;
+  output.reserve(input.size());
+  for (auto index : order)
+    output.push_back(input[index]);
+  return output;
+}
+
 inline generator<value> b_sort(const value& in)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
-    throw error{std::string{type_name(in)} + " (" + brief(in) + ") cannot be sorted, as it is not an array"};
-  list_type r = *l;
-  std::stable_sort(r.begin(), r.end(), [](const value& a, const value& b) {
-    return compare(a, b) < 0;
-  });
+  if (!l)
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in)
+        + ") cannot be sorted, as it is not an array"};
+  auto r = sorted_values(*l);
   co_yield value{std::move(r)};
 }
 
 inline generator<value> b_unique(const value& in)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
-    throw error{std::string{type_name(in)} + " (" + brief(in) + ") cannot be sorted, as it is not an array"};
-  list_type r = *l;
-  std::stable_sort(r.begin(), r.end(), [](const value& a, const value& b) {
-    return compare(a, b) < 0;
-  });
+  if (!l)
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in)
+        + ") cannot be sorted, as it is not an array"};
+  auto r = sorted_values(*l);
   r.erase(
       std::unique(
-          r.begin(), r.end(),
+          r.begin(),
+          r.end(),
           [](const value& a, const value& b) { return compare(a, b) == 0; }),
       r.end());
   co_yield value{std::move(r)};
@@ -319,16 +405,16 @@ inline generator<value> b_unique(const value& in)
 
 inline generator<value> b_reverse(const value& in)
 {
-  if(auto l = get_if<list_type>(&in.v))
+  if (auto l = get_if<list_type>(&in.v))
   {
     list_type r(l->rbegin(), l->rend());
     co_yield value{std::move(r)};
   }
-  else if(auto s = get_if<string_type>(&in.v))
+  else if (auto s = get_if<string_type>(&in.v))
   {
     co_yield value{string_type{s->rbegin(), s->rend()}};
   }
-  else if(get_if<null_t>(&in.v))
+  else if (get_if<null_t>(&in.v))
   {
     co_yield value{list_type{}};
   }
@@ -351,16 +437,16 @@ inline void flatten_into(const list_type& src, list_type& dst)
   config::vector<frame> stack;
   stack.push_back({&src, 0});
 
-  while(!stack.empty())
+  while (!stack.empty())
   {
     auto& top = stack.back();
-    if(top.idx >= top.list->size())
+    if (top.idx >= top.list->size())
     {
       stack.pop_back();
       continue;
     }
     const value& e = (*top.list)[top.idx++];
-    if(auto sub = get_if<list_type>(&e.v))
+    if (auto sub = get_if<list_type>(&e.v))
       stack.push_back({sub, 0});
     else
       dst.push_back(e);
@@ -370,7 +456,7 @@ inline void flatten_into(const list_type& src, list_type& dst)
 inline generator<value> b_flatten(const value& in)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
+  if (!l)
     throw error{"Cannot flatten " + std::string{type_name(in)}};
   list_type r;
   flatten_into(*l, r);
@@ -383,21 +469,21 @@ inline generator<value> b_flatten(const value& in)
 template <kind K>
 generator<value> b_of_kind(const value& in)
 {
-  if(kind_of(in) == K)
+  if (kind_of(in) == K)
     co_yield in;
 }
 
 inline generator<value> b_scalars(const value& in)
 {
   const auto k = kind_of(in);
-  if(k != kind::array && k != kind::object)
+  if (k != kind::array && k != kind::object)
     co_yield in;
 }
 
 inline generator<value> b_iterables(const value& in)
 {
   const auto k = kind_of(in);
-  if(k == kind::array || k == kind::object)
+  if (k == kind::array || k == kind::object)
     co_yield in;
 }
 
@@ -409,13 +495,13 @@ inline generator<value> b_empty(const value&)
 
 inline generator<value> b_tostring(const value& in)
 {
-  if(auto s = get_if<string_type>(&in.v))
+  if (get_if<string_type>(&in.v))
   {
-    co_yield *s;
+    co_yield in;
   }
   else
   {
-    std::string out;
+    string_type out;
     render_json(in, out);
     co_yield value{std::move(out)};
   }
@@ -423,30 +509,32 @@ inline generator<value> b_tostring(const value& in)
 
 inline generator<value> b_tonumber(const value& in)
 {
-  if(is_number(in))
+  if (is_number(in))
   {
     co_yield in;
   }
-  else if(auto s = get_if<string_type>(&in.v))
+  else if (auto s = get_if<string_type>(&in.v))
   {
     const auto d = parse_number(*s);
-    if(!d)
-      throw error{"Cannot parse '" + *s + "' as number"};
+    if (!d)
+      throw error{"Cannot parse '" + std::string{*s} + "' as number"};
     co_yield number(*d);
   }
   else
   {
-    throw error{std::string{type_name(in)} + " (" + brief(in)
-                + ") cannot be parsed as a number"};
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in)
+        + ") cannot be parsed as a number"};
   }
 }
 
 template <typename F>
 generator<value> numeric1(const value& in, F f, const char* name)
 {
-  if(!is_number(in))
-    throw error{std::string{type_name(in)} + " (" + brief(in) + ") number required ("
-                + name + ")"};
+  if (!is_number(in))
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in) + ") number required ("
+        + name + ")"};
   co_yield number(f(as_number(in)));
 }
 
@@ -455,13 +543,10 @@ generator<value> numeric1(const value& in, F f, const char* name)
 //! `map(f)`: [ .[] | f ]
 inline generator<value> b_map(const value& in, const action_fun& f)
 {
-  auto l = get_if<list_type>(&in.v);
-  if(!l)
-    throw error{"Cannot iterate over " + std::string{type_name(in)}};
   list_type r;
-  for(const auto& e : *l)
-    for(auto& v : f(e))
-      r.push_back(std::move(v.data));
+  for (auto& e : iterate_array(in))
+    for (auto& v : f(e.get()))
+      r.push_back(v.take());
   co_yield value{std::move(r)};
 }
 
@@ -470,39 +555,39 @@ inline generator<value> b_map(const value& in, const action_fun& f)
 inline value sort_key(const value& e, const action_fun& f)
 {
   list_type k;
-  for(auto& v : f(e))
-    k.push_back(std::move(v.data));
+  for (auto& v : f(e))
+    k.push_back(v.take());
   return value{std::move(k)};
 }
 
 inline generator<value> b_sort_by(const value& in, const action_fun& f)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
-    throw error{std::string{type_name(in)} + " (" + brief(in) + ") cannot be sorted, as it is not an array"};
+  if (!l)
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in)
+        + ") cannot be sorted, as it is not an array"};
 
-  config::vector<std::pair<value, value>> tmp;
-  tmp.reserve(l->size());
-  for(const auto& e : *l)
-    tmp.emplace_back(sort_key(e, f), e);
-
-  std::stable_sort(tmp.begin(), tmp.end(), [](const auto& a, const auto& b) {
-    return compare(a.first, b.first) < 0;
-  });
+  list_type keys;
+  keys.reserve(l->size());
+  for (const auto& element : *l)
+    keys.push_back(sort_key(element, f));
+  auto order = stable_indices(
+      keys.size(), [&](auto a, auto b) { return compare(keys[a], keys[b]); });
 
   list_type r;
-  r.reserve(tmp.size());
-  for(auto& [k, e] : tmp)
-    r.push_back(std::move(e));
+  r.reserve(order.size());
+  for (auto index : order)
+    r.push_back((*l)[index]);
   co_yield value{std::move(r)};
 }
 
 inline generator<value> b_min_by(const value& in, const action_fun& f)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
+  if (!l)
     throw error{"Cannot iterate over " + std::string{type_name(in)}};
-  if(l->empty())
+  if (l->empty())
   {
     co_yield value{null_t{}};
   }
@@ -510,10 +595,10 @@ inline generator<value> b_min_by(const value& in, const action_fun& f)
   {
     const value* best = &(*l)[0];
     value bestk = sort_key(*best, f);
-    for(const auto& e : *l)
+    for (const auto& e : *l)
     {
       value k = sort_key(e, f);
-      if(compare(k, bestk) < 0)
+      if (compare(k, bestk) < 0)
       {
         bestk = std::move(k);
         best = &e;
@@ -526,9 +611,9 @@ inline generator<value> b_min_by(const value& in, const action_fun& f)
 inline generator<value> b_max_by(const value& in, const action_fun& f)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
+  if (!l)
     throw error{"Cannot iterate over " + std::string{type_name(in)}};
-  if(l->empty())
+  if (l->empty())
   {
     co_yield value{null_t{}};
   }
@@ -536,10 +621,10 @@ inline generator<value> b_max_by(const value& in, const action_fun& f)
   {
     const value* best = &(*l)[0];
     value bestk = sort_key(*best, f);
-    for(const auto& e : *l)
+    for (const auto& e : *l)
     {
       value k = sort_key(e, f);
-      if(compare(k, bestk) >= 0)
+      if (compare(k, bestk) >= 0)
       {
         bestk = std::move(k);
         best = &e;
@@ -552,24 +637,25 @@ inline generator<value> b_max_by(const value& in, const action_fun& f)
 inline generator<value> b_group_by(const value& in, const action_fun& f)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
-    throw error{std::string{type_name(in)} + " (" + brief(in) + ") cannot be grouped, as it is not an array"};
+  if (!l)
+    throw error{
+        std::string{type_name(in)} + " (" + brief(in)
+        + ") cannot be grouped, as it is not an array"};
 
-  config::vector<std::pair<value, value>> tmp;
-  tmp.reserve(l->size());
-  for(const auto& e : *l)
-    tmp.emplace_back(sort_key(e, f), e);
-  std::stable_sort(tmp.begin(), tmp.end(), [](const auto& a, const auto& b) {
-    return compare(a.first, b.first) < 0;
-  });
+  list_type keys;
+  keys.reserve(l->size());
+  for (const auto& element : *l)
+    keys.push_back(sort_key(element, f));
+  auto order = stable_indices(
+      keys.size(), [&](auto a, auto b) { return compare(keys[a], keys[b]); });
 
   list_type groups;
-  for(std::size_t i = 0; i < tmp.size();)
+  for (std::size_t i = 0; i < order.size();)
   {
     list_type g;
     std::size_t j = i;
-    while(j < tmp.size() && compare(tmp[j].first, tmp[i].first) == 0)
-      g.push_back(std::move(tmp[j++].second));
+    while (j < order.size() && compare(keys[order[j]], keys[order[i]]) == 0)
+      g.push_back((*l)[order[j++]]);
     groups.push_back(value{std::move(g)});
     i = j;
   }
@@ -578,83 +664,224 @@ inline generator<value> b_group_by(const value& in, const action_fun& f)
 
 inline generator<value> b_has(const value& in, const action_fun& f)
 {
-  for(auto& k : f(in))
+  for (auto& k : f(in))
   {
-    if(auto m = get_if<map_type>(&in.v))
+    if (auto m = get_if<map_type>(&in.v))
     {
-      auto s = get_if<string_type>(&k.data.v);
-      if(!s)
-        throw error{"Cannot check whether object has a key of type "
-                    + std::string{type_name(k.data)}};
+      auto s = get_if<string_type>(&k.get().v);
+      if (!s)
+        throw error{
+            "Cannot check whether object has a key of type "
+            + std::string{type_name(k.get())}};
       co_yield value{m->find(*s) != m->end()};
     }
-    else if(auto l = get_if<list_type>(&in.v))
+    else if (auto l = get_if<list_type>(&in.v))
     {
-      if(!is_number(k.data))
-        throw error{"Cannot check whether array has a key of type "
-                    + std::string{type_name(k.data)}};
-      const double i = as_number(k.data);
+      if (!is_number(k.get()))
+        throw error{
+            "Cannot check whether array has a key of type "
+            + std::string{type_name(k.get())}};
+      const double i = as_number(k.get());
       co_yield value{i >= 0 && i < double(l->size())};
     }
     else
     {
-      throw error{"Cannot check whether " + std::string{type_name(in)}
-                  + " has a key"};
+      throw error{
+          "Cannot check whether " + std::string{type_name(in)} + " has a key"};
     }
   }
 }
 
-inline generator<value> b_any(const value& in)
+//! Fold the condition stream without advancing either stream after a decision.
+inline generator<value> b_quantify(
+    const value& in,
+    const action_fun& source,
+    const action_fun& condition,
+    bool all)
 {
-  auto l = get_if<list_type>(&in.v);
-  if(!l)
-    throw error{"Cannot iterate over " + std::string{type_name(in)}};
-  bool r = false;
-  for(const auto& e : *l)
-    if(truthy(e))
-    {
-      r = true;
-      break;
-    }
-  co_yield value{r};
+  for (auto& item : source(in))
+    for (auto& result : condition(item.get()))
+      if (truthy(result.get()) != all)
+      {
+        co_yield value{!all};
+        co_return;
+      }
+  co_yield value{all};
 }
 
-inline generator<value> b_all(const value& in)
+inline generator<value> b_error(const value& in)
 {
-  auto l = get_if<list_type>(&in.v);
-  if(!l)
-    throw error{"Cannot iterate over " + std::string{type_name(in)}};
-  bool r = true;
-  for(const auto& e : *l)
-    if(!truthy(e))
+  throw error{in};
+  co_return;
+}
+
+inline generator<value>
+b_error_message(const value& in, const action_fun& message)
+{
+  for (auto& payload : message(in))
+    throw error{payload.take()};
+  co_return;
+}
+
+inline generator<value> b_first(const value& in, const action_fun& source)
+{
+  for (auto& output : source(in))
+  {
+    co_yield output;
+    co_return;
+  }
+}
+
+inline generator<value> b_last(const value& in, const action_fun& source)
+{
+  value last{null_t{}};
+  bool produced = false;
+  for (auto& output : source(in))
+  {
+    last = output.take();
+    produced = true;
+  }
+  if (produced)
+    co_yield std::move(last);
+}
+
+inline generator<value> b_isempty(const value& in, const action_fun& source)
+{
+  auto stream = source(in);
+  co_yield value{stream.begin() == stream.end()};
+}
+
+inline generator<value>
+b_limit(const value& in, const action_fun& count, const action_fun& source)
+{
+  const value zero{int64_t(0)};
+  const value one{int64_t(1)};
+  for (auto& n : count(in))
+  {
+    if (equal(n.get(), zero))
+      continue;
+    if (compare(n.get(), zero) <= 0)
+      throw error{"limit doesn't support negative count"};
+    value remaining = n.take();
+    for (auto& output : source(in))
     {
-      r = false;
-      break;
+      remaining = subtract(remaining, one);
+      co_yield output;
+      if (compare(remaining, zero) <= 0)
+        break;
     }
-  co_yield value{r};
+  }
+}
+
+inline generator<value>
+b_skip(const value& in, const action_fun& count, const action_fun& source)
+{
+  const value zero{int64_t(0)};
+  const value one{int64_t(1)};
+  for (auto& n : count(in))
+  {
+    if (compare(n.get(), zero) < 0)
+      throw error{"skip doesn't support negative count"};
+    value remaining = n.get();
+    for (auto& output : source(in))
+    {
+      if (equal(n.get(), zero))
+        co_yield output;
+      else
+      {
+        remaining = subtract(remaining, one);
+        if (compare(remaining, zero) < 0)
+          co_yield output;
+      }
+    }
+  }
+}
+
+inline generator<value>
+b_nth(const value& in, const action_fun& count, const action_fun& source)
+{
+  const value zero{int64_t(0)};
+  const value one{int64_t(1)};
+  for (auto& n : count(in))
+  {
+    if (compare(n.get(), zero) < 0)
+      throw error{"nth doesn't support negative indices"};
+    value remaining = n.get();
+    for (auto& output : source(in))
+    {
+      if (!equal(n.get(), zero))
+        remaining = subtract(remaining, one);
+      if (equal(n.get(), zero) || compare(remaining, zero) < 0)
+      {
+        co_yield output;
+        break;
+      }
+    }
+  }
+}
+
+inline generator<value>
+b_range(const value& in, const action_fun& from, const action_fun& upto)
+{
+  for (auto& start : from(in))
+    for (auto& stop : upto(in))
+    {
+      if (!is_number(start.get()) || !is_number(stop.get()))
+        throw error{"Range bounds must be numeric"};
+      const double end = as_number(stop.get());
+      for (double current = as_number(start.get()); !(current >= end);
+           current += 1.)
+        co_yield number(current);
+    }
+}
+
+inline generator<value> b_range_step(
+    const value& in,
+    const action_fun& from,
+    const action_fun& upto,
+    const action_fun& step)
+{
+  const value zero{int64_t(0)};
+  for (auto& start : from(in))
+    for (auto& stop : upto(in))
+      for (auto& increment : step(in))
+      {
+        const int direction = compare(increment.get(), zero);
+        if (direction == 0)
+          continue;
+        value current = start.get();
+        while (direction > 0 ? compare(current, stop.get()) < 0
+                             : compare(current, stop.get()) > 0)
+        {
+          co_yield current;
+          current = add(current, increment.get());
+        }
+      }
 }
 
 inline generator<value> b_join(const value& in, const action_fun& f)
 {
   auto l = get_if<list_type>(&in.v);
-  if(!l)
+  if (!l)
     throw error{"Cannot iterate over " + std::string{type_name(in)}};
 
-  for(auto& sepv : f(in))
+  for (auto& sepv : f(in))
   {
-    auto sep = get_if<string_type>(&sepv.data.v);
-    if(!sep)
-      throw error{std::string{type_name(sepv.data)} + " cannot be used as a separator"};
+    auto sep = get_if<string_type>(&sepv.get().v);
+    if (!sep)
+      throw error{
+          std::string{type_name(sepv.get())}
+          + " cannot be used as a separator"};
 
     string_type out;
     bool first = true;
-    for(const auto& e : *l)
+    for (const auto& e : *l)
     {
-      if(!first)
+      if (!first)
         out += *sep;
       first = false;
       // null becomes the empty string; other non-strings are rendered.
-      switch(kind_of(e))
+      switch (kind_of(e))
       {
         case kind::null:
           break;
@@ -664,10 +891,9 @@ inline generator<value> b_join(const value& in, const action_fun& f)
         case kind::array:
         case kind::object:
           throw error{"Cannot join with " + std::string{type_name(e)}};
-        default: {
-          std::string s;
-          render_json(e, s);
-          out += s;
+        default:
+        {
+          render_json(e, out);
           break;
         }
       }
@@ -678,98 +904,179 @@ inline generator<value> b_join(const value& in, const action_fun& f)
 
 inline generator<value> b_split(const value& in, const action_fun& f)
 {
-  if(!get_if<string_type>(&in.v))
+  if (!get_if<string_type>(&in.v))
     throw error{"split input must be a string"};
-  for(auto& sep : f(in))
-    co_yield divide(in, sep.data);
+  for (auto& sep : f(in))
+    co_yield divide(in, sep.get());
 }
 
 }
 
 namespace jk::action
 {
-/**
- * @brief Resolve a zero-argument builtin by name.
- *
- * Throws for an unknown name so that the parser can reject the program
- * outright: a filter that silently does nothing is much harder to diagnose
- * than one that refuses to load.
- */
-inline action_fun make_builtin0(const std::string& name)
+//! Resolve a builtin by name and arity; argument filters retain their input.
+inline action_fun
+make_builtin(std::string_view name, std::vector<action_fun> args)
 {
-  const auto wrap = [&](auto fn) {
-    return action_fun{[fn](const value& in) { return fn(in); }, "builtin"};
+  const auto arity = args.size();
+  const auto wrap0 = [&](auto fn)
+  { return action_fun{[fn](const value& in) { return fn(in); }}; };
+  const auto wrap1 = [&](auto fn)
+  {
+    return action_fun{[fn, arg = std::move(args[0])](const value& in)
+                      { return fn(in, arg); }};
   };
-  const auto num = [&](double (*fn)(double), const char* n) {
+  const auto wrap2 = [&](auto fn)
+  {
+    return action_fun{[fn, a = std::move(args[0]), b = std::move(args[1])](
+                          const value& in) { return fn(in, a, b); }};
+  };
+  const auto identity = [] { return action_fun{copy_all}; };
+  const auto iterate = [] { return action_fun{iterate_array}; };
+  if ((name == "any" || name == "all") && arity <= 2)
+  {
+    action_fun source = arity == 2 ? std::move(args[0]) : iterate();
+    action_fun condition
+        = arity == 0 ? identity() : std::move(args[arity - 1]);
+    return action_fun{[source = std::move(source),
+                       condition = std::move(condition),
+                       all = name == "all"](const value& in)
+                      { return b_quantify(in, source, condition, all); }};
+  }
+  if (name == "range" && arity >= 1 && arity <= 3)
+  {
+    action_fun from = arity == 1
+                          ? action_fun{[zero = value{int64_t(0)}](const value&)
+                                       { return constant(zero); }}
+                          : std::move(args[0]);
+    action_fun upto = std::move(args[arity == 1 ? 0 : 1]);
+    if (arity == 3)
+      return action_fun{[from = std::move(from),
+                         upto = std::move(upto),
+                         step = std::move(args[2])](const value& in)
+                        { return b_range_step(in, from, upto, step); }};
     return action_fun{
-        [fn, n](const value& in) { return numeric1(in, fn, n); }, "builtin"};
-  };
-
-  if(name == "length")     return wrap(b_length);
-  if(name == "type")       return wrap(b_type);
-  if(name == "not")        return wrap(b_not);
-  if(name == "keys")       return wrap(b_keys);
-  if(name == "keys_unsorted") return wrap(b_keys);
-  if(name == "values")     return wrap(b_values);
-  if(name == "to_entries") return wrap(b_to_entries);
-  if(name == "add")        return wrap(b_add);
-  if(name == "min")        return wrap(b_min);
-  if(name == "max")        return wrap(b_max);
-  if(name == "sort")       return wrap(b_sort);
-  if(name == "unique")     return wrap(b_unique);
-  if(name == "reverse")    return wrap(b_reverse);
-  if(name == "flatten")    return wrap(b_flatten);
-  if(name == "empty")      return wrap(b_empty);
-
-  if(name == "nulls")      return wrap(b_of_kind<kind::null>);
-  if(name == "booleans")   return wrap(b_of_kind<kind::boolean>);
-  if(name == "numbers")    return wrap(b_of_kind<kind::number>);
-  if(name == "strings")    return wrap(b_of_kind<kind::string>);
-  if(name == "arrays")     return wrap(b_of_kind<kind::array>);
-  if(name == "objects")    return wrap(b_of_kind<kind::object>);
-  if(name == "scalars")    return wrap(b_scalars);
-  if(name == "iterables")  return wrap(b_iterables);
-  if(name == "tostring")   return wrap(b_tostring);
-  if(name == "tonumber")   return wrap(b_tonumber);
-  if(name == "any")        return wrap(b_any);
-  if(name == "all")        return wrap(b_all);
-
-  // first/last are .[0] and .[-1] in jq, including their null-for-empty.
-  if(name == "first")
-    return action_fun{[](const value& in) { return access_array(0, in); }, "first"};
-  if(name == "last")
-    return action_fun{[](const value& in) { return access_array(-1, in); }, "last"};
-
-  if(name == "floor") return num([](double d) { return std::floor(d); }, "floor");
-  if(name == "ceil")  return num([](double d) { return std::ceil(d); }, "ceil");
-  if(name == "round") return num([](double d) { return std::round(d); }, "round");
-  if(name == "fabs")  return num([](double d) { return std::abs(d); }, "fabs");
-  if(name == "sqrt")  return num([](double d) { return std::sqrt(d); }, "sqrt");
-
-  throw error{name + "/0 is not defined"};
+        [from = std::move(from), upto = std::move(upto)](const value& in)
+        { return b_range(in, from, upto); }};
+  }
+  if (arity == 0)
+  {
+    const auto num = [&](double (*fn)(double), const char* n)
+    {
+      return action_fun{[fn, n](const value& in)
+                        { return numeric1(in, fn, n); }};
+    };
+    if (name == "length")
+      return wrap0(b_length);
+    if (name == "type")
+      return wrap0(b_type);
+    if (name == "not")
+      return wrap0(b_not);
+    if (name == "keys")
+      return wrap0(b_keys);
+    if (name == "keys_unsorted")
+      return wrap0(b_keys);
+    if (name == "values")
+      return wrap0(b_values);
+    if (name == "to_entries")
+      return wrap0(b_to_entries);
+    if (name == "add")
+      return wrap0(b_add);
+    if (name == "min")
+      return wrap0(b_min);
+    if (name == "max")
+      return wrap0(b_max);
+    if (name == "sort")
+      return wrap0(b_sort);
+    if (name == "unique")
+      return wrap0(b_unique);
+    if (name == "reverse")
+      return wrap0(b_reverse);
+    if (name == "flatten")
+      return wrap0(b_flatten);
+    if (name == "empty")
+      return wrap0(b_empty);
+    if (name == "error")
+      return wrap0(b_error);
+    if (name == "nulls")
+      return wrap0(b_of_kind<kind::null>);
+    if (name == "booleans")
+      return wrap0(b_of_kind<kind::boolean>);
+    if (name == "numbers")
+      return wrap0(b_of_kind<kind::number>);
+    if (name == "strings")
+      return wrap0(b_of_kind<kind::string>);
+    if (name == "arrays")
+      return wrap0(b_of_kind<kind::array>);
+    if (name == "objects")
+      return wrap0(b_of_kind<kind::object>);
+    if (name == "scalars")
+      return wrap0(b_scalars);
+    if (name == "iterables")
+      return wrap0(b_iterables);
+    if (name == "tostring")
+      return wrap0(b_tostring);
+    if (name == "tonumber")
+      return wrap0(b_tonumber);
+    if (name == "first")
+      return action_fun{[](const value& in) { return access_array(0, in); }};
+    if (name == "last")
+      return action_fun{[](const value& in) { return access_array(-1, in); }};
+    if (name == "floor")
+      return num([](double d) { return std::floor(d); }, "floor");
+    if (name == "ceil")
+      return num([](double d) { return std::ceil(d); }, "ceil");
+    if (name == "round")
+      return num([](double d) { return std::round(d); }, "round");
+    if (name == "fabs")
+      return num([](double d) { return std::abs(d); }, "fabs");
+    if (name == "sqrt")
+      return num([](double d) { return std::sqrt(d); }, "sqrt");
+  }
+  else if (arity == 1)
+  {
+    if (name == "map")
+      return wrap1(b_map);
+    if (name == "select")
+      return wrap1(select);
+    if (name == "sort_by")
+      return wrap1(b_sort_by);
+    if (name == "min_by")
+      return wrap1(b_min_by);
+    if (name == "max_by")
+      return wrap1(b_max_by);
+    if (name == "group_by")
+      return wrap1(b_group_by);
+    if (name == "has")
+      return wrap1(b_has);
+    if (name == "join")
+      return wrap1(b_join);
+    if (name == "split")
+      return wrap1(b_split);
+    if (name == "error")
+      return wrap1(b_error_message);
+    if (name == "first")
+      return wrap1(b_first);
+    if (name == "last")
+      return wrap1(b_last);
+    if (name == "isempty")
+      return wrap1(b_isempty);
+    if (name == "nth")
+      return action_fun{
+          [base = identity(), key = std::move(args[0])](const value& in)
+          { return index_by(in, base, key); }};
+  }
+  else if (arity == 2)
+  {
+    if (name == "nth")
+      return wrap2(b_nth);
+    if (name == "limit")
+      return wrap2(b_limit);
+    if (name == "skip")
+      return wrap2(b_skip);
+  }
+  throw error{
+      std::string{name} + "/" + std::to_string(arity) + " is not defined"};
 }
 
-//! Resolve a one-argument builtin. The argument is itself a compiled
-//! expression, evaluated against whatever the builtin decides to apply it to.
-inline action_fun make_builtin1(const std::string& name, action_fun arg)
-{
-  const auto wrap = [&](auto fn) {
-    return action_fun{
-        [fn, arg](const value& in) { return fn(in, arg); }, "builtin1"};
-  };
-
-  if(name == "map")      return wrap(b_map);
-  if(name == "select")   return wrap(select);
-  if(name == "sort_by")  return wrap(b_sort_by);
-  if(name == "min_by")   return wrap(b_min_by);
-  if(name == "max_by")   return wrap(b_max_by);
-  if(name == "group_by") return wrap(b_group_by);
-  if(name == "has")      return wrap(b_has);
-  if(name == "join")     return wrap(b_join);
-  if(name == "split")    return wrap(b_split);
-
-  // map(f) and select(f) cover the common uses of the generic forms; the
-  // remaining ones are rejected rather than silently ignored.
-  throw error{name + "/1 is not defined"};
-}
-}
+} // namespace jk::action

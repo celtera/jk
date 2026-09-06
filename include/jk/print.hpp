@@ -1,10 +1,9 @@
 #pragma once
+#include <cmath>
+#include <jk/charconv.hpp>
 #include <jk/ops.hpp>
 #include <jk/value.hpp>
 
-#include <jk/charconv.hpp>
-
-#include <cmath>
 #include <cstdio>
 #include <iostream>
 #include <sstream>
@@ -23,7 +22,7 @@ struct print
   void operator()(const auto& t) { os << t; }
   void operator()(null_t) { os << "null"; }
   void operator()(bool t) { os << (t ? "true" : "false"); }
-  void operator()(const std::string& t) { os << "\"" << t << "\""; }
+  void operator()(const string_type& t) { os << "\"" << t << "\""; }
   void operator()(const list_type& t)
   {
     os << "[";
@@ -69,19 +68,21 @@ inline std::string to_string(const jk::value& v)
  * insertion order unless asked otherwise, so the tests compare against
  * `jq -cS`.
  */
-inline void render_number(double d, std::string& out)
+template <typename Traits, typename Allocator>
+inline void
+render_number(double d, std::basic_string<char, Traits, Allocator>& out)
 {
-  if(std::isnan(d))
+  if (std::isnan(d))
   {
     out += "null"; // jq renders NaN as null
     return;
   }
-  if(std::isinf(d))
+  if (std::isinf(d))
   {
     out += d > 0 ? "1.7976931348623157e+308" : "-1.7976931348623157e+308";
     return;
   }
-  if(d == std::floor(d) && std::abs(d) < 1e17)
+  if (d == std::floor(d) && std::abs(d) < 1e17)
   {
     char buf[32];
     const auto n = std::snprintf(buf, sizeof(buf), "%lld", (long long)d);
@@ -92,12 +93,15 @@ inline void render_number(double d, std::string& out)
   append_shortest(d, out);
 }
 
-inline void render_string(const std::string& s, std::string& out)
+template <typename Traits, typename Allocator>
+inline void render_string(
+    std::string_view s,
+    std::basic_string<char, Traits, Allocator>& out)
 {
   out += '"';
-  for(unsigned char c : s)
+  for (unsigned char c : s)
   {
-    switch(c)
+    switch (c)
     {
       case '"':
         out += "\\\"";
@@ -121,7 +125,7 @@ inline void render_string(const std::string& s, std::string& out)
         out += "\\f";
         break;
       default:
-        if(c < 0x20)
+        if (c < 0x20)
         {
           char buf[8];
           const auto n = std::snprintf(buf, sizeof(buf), "\\u%04x", c);
@@ -140,53 +144,57 @@ inline void render_string(const std::string& s, std::string& out)
 //!  depth Guards the recursion. Anything this deep cannot have been
 //! copied into jk in the first place - the value type copies recursively - so
 //! refusing is strictly safer than the alternative of running out of stack.
-inline void render_json(const value& v, std::string& out, int depth = 0)
+template <typename Traits, typename Allocator>
+inline void render_json(
+    const value& v,
+    std::basic_string<char, Traits, Allocator>& out,
+    int depth = 0)
 {
-  if(depth > 512)
+  if (depth > 512)
     throw error{"value is too deeply nested to render"};
 
-  if(get_if<null_t>(&v.v))
+  if (get_if<null_t>(&v.v))
   {
     out += "null";
   }
-  else if(auto b = get_if<bool>(&v.v))
+  else if (auto b = get_if<bool>(&v.v))
   {
     out += *b ? "true" : "false";
   }
-  else if(auto i = get_if<int64_t>(&v.v))
+  else if (auto i = get_if<int64_t>(&v.v))
   {
     char buf[32];
     const auto n = std::snprintf(buf, sizeof(buf), "%lld", (long long)*i);
     out.append(buf, n);
   }
-  else if(auto d = get_if<double>(&v.v))
+  else if (auto d = get_if<double>(&v.v))
   {
     render_number(*d, out);
   }
-  else if(auto s = get_if<string_type>(&v.v))
+  else if (auto s = get_if<string_type>(&v.v))
   {
     render_string(*s, out);
   }
-  else if(auto l = get_if<list_type>(&v.v))
+  else if (auto l = get_if<list_type>(&v.v))
   {
     out += '[';
     bool first = true;
-    for(const auto& e : *l)
+    for (const auto& e : *l)
     {
-      if(!first)
+      if (!first)
         out += ',';
       first = false;
       render_json(e, out, depth + 1);
     }
     out += ']';
   }
-  else if(auto m = get_if<map_type>(&v.v))
+  else if (auto m = get_if<map_type>(&v.v))
   {
     out += '{';
     bool first = true;
-    for(const auto& [k, e] : *m)
+    for (const auto& [k, e] : *m)
     {
-      if(!first)
+      if (!first)
         out += ',';
       first = false;
       render_string(k, out);

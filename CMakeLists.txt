@@ -5,24 +5,35 @@ enable_testing()
 include(CTest)
 
 find_package(Catch2 3 REQUIRED)
-find_package(Boost REQUIRED)
+find_package(fmt REQUIRED)
+
+find_path(SMALLFUN_INCLUDE_DIR
+  NAMES smallfun.hpp
+  HINTS "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../3rdparty/libossia/3rdparty/SmallFunction/smallfun/include"
+  DOC "Directory containing the SmallFunction smallfun.hpp header")
+if(NOT SMALLFUN_INCLUDE_DIR)
+  message(FATAL_ERROR "SmallFunction was not found; set SMALLFUN_INCLUDE_DIR to its include directory")
+endif()
 
 add_library(jk
+  include/jk/action_fun.hpp
   include/jk/action_handler.hpp
   include/jk/actions.hpp
   include/jk/config.hpp
   include/jk/generator.hpp
+  include/jk/memory.hpp
   include/jk/parser.hpp
   include/jk/print.hpp
   include/jk/value.hpp
   src/parser.cpp)
 target_compile_features(jk PUBLIC cxx_std_20)
-target_include_directories(jk PUBLIC include ${Boost_INCLUDE_DIRS})
+target_include_directories(jk PUBLIC include "${SMALLFUN_INCLUDE_DIR}")
 
 add_executable(execute tests/execute.cpp)
-target_link_libraries(execute PRIVATE jk fmt)
-add_executable(parse_test tests/parse.cpp)
-target_link_libraries(parse_test PRIVATE jk Catch2::Catch2WithMain fmt)
+target_link_libraries(execute PRIVATE jk fmt::fmt)
+add_executable(parse_test tests/parse.cpp tests/ownership.cpp)
+target_link_libraries(parse_test PRIVATE jk Catch2::Catch2WithMain fmt::fmt)
+add_test(NAME parse_test COMMAND parse_test)
 
 # Conformance against jq itself: tests/cases.txt is run through the real jq by
 # tests/gen-cases.sh, and the generated table is what these compare against.
