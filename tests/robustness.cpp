@@ -10,6 +10,9 @@
 // Every program here is run against every input, including deliberately
 // mismatched ones, because pointing a filter at the wrong shape is the normal
 // way a patch is wrong.
+#include "test_json.hpp"
+
+#include <jk/actions.hpp>
 #include <jk/parser.hpp>
 #include <jk/print.hpp>
 
@@ -18,8 +21,6 @@
 #include <random>
 #include <string>
 #include <vector>
-
-#include "test_json.hpp"
 
 namespace
 {
@@ -35,7 +36,7 @@ void fail(const char* what, const std::string& detail)
 jk::value deep_array(int depth)
 {
   jk::value v{int64_t(1)};
-  for(int i = 0; i < depth; i++)
+  for (int i = 0; i < depth; i++)
   {
     jk::list_type l;
     l.push_back(std::move(v));
@@ -47,7 +48,7 @@ jk::value deep_array(int depth)
 jk::value deep_object(int depth)
 {
   jk::value v{int64_t(1)};
-  for(int i = 0; i < depth; i++)
+  for (int i = 0; i < depth; i++)
   {
     jk::map_type m;
     m["a"] = std::move(v);
@@ -61,32 +62,32 @@ jk::value deep_object(int depth)
 int run_guarded(const char* program, const jk::value& in, const char* label)
 {
   auto prog = jk::parse(program);
-  if(!prog)
+  if (!prog)
     return -1; // rejected at parse time, which is a legitimate answer
 
   int n = 0;
   try
   {
-    for(auto& v : jk::action::process_sequence(in, prog->current_seq))
+    for (auto& v : jk::action::process_sequence(in, prog->current_seq))
     {
       (void)v;
       ++n;
-      if(n > 2000000)
+      if (n > 2000000)
       {
         fail("runaway output", program);
         break;
       }
     }
   }
-  catch(const jk::error&)
+  catch (const jk::error&)
   {
     // The expected way a type error arrives.
   }
-  catch(const std::exception& e)
+  catch (const std::exception& e)
   {
     fail(label, std::string{program} + " threw std::exception: " + e.what());
   }
-  catch(...)
+  catch (...)
   {
     fail(label, std::string{program} + " threw a non-jk exception");
   }
@@ -115,7 +116,7 @@ int main()
       "[{\"a\":1},{\"b\":2}]",
       "[null,true,\"x\",[],{}]",
   };
-  for(const char* j : json_inputs)
+  for (const char* j : json_inputs)
     inputs.emplace_back(j, parse_json(j));
 
   // ------------------------------------------------------------- programs
@@ -185,8 +186,8 @@ int main()
 
   std::printf("=== every program against every input ===\n");
   int combinations = 0;
-  for(const char* p : programs)
-    for(const auto& [name, in] : inputs)
+  for (const char* p : programs)
+    for (const auto& [name, in] : inputs)
     {
       run_guarded(p, in, "mismatched input");
       ++combinations;
@@ -207,25 +208,41 @@ int main()
   const jk::value deep_a = deep_array(2000);
   const jk::value deep_o = deep_object(2000);
   const char* deep_progs[]
-      = {"..", "[..]", "flatten", "sort", ". == .", "[ .. | numbers ]",
-         "tostring", "length", "type", ". * ."};
-  for(const char* p : deep_progs)
+      = {"..",
+         "[..]",
+         "flatten",
+         "sort",
+         ". == .",
+         "[ .. | numbers ]",
+         "tostring",
+         "length",
+         "type",
+         ". * ."};
+  for (const char* p : deep_progs)
   {
     run_guarded(p, deep_a, "deep array");
     run_guarded(p, deep_o, "deep object");
   }
-  std::printf("  survived depth 2000 on %zu program(s)\n",
-              sizeof(deep_progs) / sizeof(deep_progs[0]));
+  std::printf(
+      "  survived depth 2000 on %zu program(s)\n",
+      sizeof(deep_progs) / sizeof(deep_progs[0]));
 
   // ------------------------------------------------------------ wide input
   std::printf("\n=== wide input ===\n");
   {
     jk::list_type wide;
-    for(int i = 0; i < 100000; i++)
+    for (int i = 0; i < 100000; i++)
       wide.push_back(jk::value{int64_t(i)});
     const jk::value w{std::move(wide)};
-    for(const char* p : {".[]", "add", "sort", "unique", "reverse", "length",
-                         "map(. + 1)", "[ .[] | select(. > 50000) ]"})
+    for (const char* p :
+         {".[]",
+          "add",
+          "sort",
+          "unique",
+          "reverse",
+          "length",
+          "map(. + 1)",
+          "[ .[] | select(. > 50000) ]"})
       run_guarded(p, w, "wide");
     std::printf("  survived 100000 elements\n");
   }
@@ -244,47 +261,48 @@ int main()
 
     int accepted = 0;
     const int rounds = 200000;
-    for(int i = 0; i < rounds; i++)
+    for (int i = 0; i < rounds; i++)
     {
       std::string prog;
       const int n = len(rng);
-      for(int k = 0; k < n; k++)
+      for (int k = 0; k < n; k++)
         prog += alphabet[ch(rng)];
 
       try
       {
-        if(auto p = jk::parse(prog))
+        if (auto p = jk::parse(prog))
         {
           ++accepted;
           // Anything the parser accepts must also be safe to run.
-          for(const auto& [name, in] : inputs)
+          for (const auto& [name, in] : inputs)
           {
             try
             {
               int produced = 0;
-              for(auto& v : jk::action::process_sequence(in, p->current_seq))
+              for (auto& v : jk::action::process_sequence(in, p->current_seq))
               {
                 (void)v;
-                if(++produced > 100000)
+                if (++produced > 100000)
                   break;
               }
             }
-            catch(const jk::error&)
+            catch (const jk::error&)
             {
             }
           }
         }
       }
-      catch(const std::exception& e)
+      catch (const std::exception& e)
       {
         fail("fuzz parse", prog + " -> " + e.what());
       }
-      catch(...)
+      catch (...)
       {
         fail("fuzz parse", prog + " -> unknown exception");
       }
     }
-    std::printf("  %d random program(s), %d accepted and run\n", rounds, accepted);
+    std::printf(
+        "  %d random program(s), %d accepted and run\n", rounds, accepted);
   }
 
   // ------------------------------------------------------------------ cost
@@ -293,9 +311,12 @@ int main()
   std::printf("\n=== per-message cost ===\n");
   {
     const jk::value frame = parse_json(
-        "[{\"id\":1,\"position\":[0.2,0.8],\"confidence\":0.95,\"state\":\"confirmed\"},"
-        "{\"id\":2,\"position\":[0.5,0.4],\"confidence\":0.88,\"state\":\"confirmed\"},"
-        "{\"id\":3,\"position\":[0.9,0.1],\"confidence\":0.42,\"state\":\"coasting\"}]");
+        "[{\"id\":1,\"position\":[0.2,0.8],\"confidence\":0.95,\"state\":"
+        "\"confirmed\"},"
+        "{\"id\":2,\"position\":[0.5,0.4],\"confidence\":0.88,\"state\":"
+        "\"confirmed\"},"
+        "{\"id\":3,\"position\":[0.9,0.1],\"confidence\":0.42,\"state\":"
+        "\"coasting\"}]");
 
     const char* bench[] = {
         ".",
@@ -305,10 +326,10 @@ int main()
         "sort_by(.confidence) | reverse | .[0:2]",
     };
 
-    for(const char* p : bench)
+    for (const char* p : bench)
     {
       auto prog = jk::parse(p);
-      if(!prog)
+      if (!prog)
       {
         fail("bench parse", p);
         continue;
@@ -317,9 +338,9 @@ int main()
       const int iters = 20000;
       const auto t0 = std::chrono::steady_clock::now();
       std::size_t sink = 0;
-      for(int i = 0; i < iters; i++)
-        for(auto& v : jk::action::process_sequence(frame, prog->current_seq))
-          sink += v.data.v.index();
+      for (int i = 0; i < iters; i++)
+        for (auto& v : jk::action::process_sequence(frame, prog->current_seq))
+          sink += v.get().v.index();
       const auto t1 = std::chrono::steady_clock::now();
 
       const double us

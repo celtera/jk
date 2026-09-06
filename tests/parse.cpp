@@ -1,18 +1,20 @@
 #include <catch2/catch_all.hpp>
 #include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include <cstddef>
 #include <jk/actions.hpp>
 #include <jk/parser.hpp>
 #include <jk/print.hpp>
 #include <jk/value.hpp>
-#include <string_view>
+
+#include <cstddef>
 #include <vector>
+
+#include <string_view>
 
 void check_pattern(
     std::string_view pat,
     jk::value input,
-    std::vector<jk::value> expected)
+    jk::list_type expected)
 {
   INFO("Pattern: " << pat);
   INFO("Input: " << jk::to_string(input.v));
@@ -28,12 +30,12 @@ void check_pattern(
 
   for (auto& v : gen)
   {
-    REQUIRE(!v.data.v.valueless_by_exception());
-    INFO("Got: " << to_string(v.data.v));
+    REQUIRE(!v.get().v.valueless_by_exception());
+    INFO("Got: " << to_string(v.get().v));
 
     REQUIRE(k < expected.size()); // matcher produces too much output
     INFO(" but expected " << to_string(expected[k].v));
-    REQUIRE(expected[k] == v.data.v);
+    REQUIRE(expected[k] == v.get().v);
     k++;
   }
   REQUIRE(k == expected.size()); // matcher does not produce enough output
@@ -72,8 +74,8 @@ TEST_CASE("parse_access")
   check_pattern(". [1] ", L{1, 2.5, "foo"}, {2.5});
   check_pattern(". [1] ", L{"a", "b", "c"}, {"b"});
   check_pattern(". [2] ", L{1, 2.5, "foo"}, {"foo"});
-  check_pattern(". [3] ", L{1, 2.5, "foo"}, {});
-  check_pattern(". [-1] ", L{1, 2.5, "foo"}, {});
+  check_pattern(". [3] ", L{1, 2.5, "foo"}, {V{}});
+  check_pattern(". [-1] ", L{1, 2.5, "foo"}, {"foo"});
   check_pattern(
       ". [12] ", L{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}, {12});
 
@@ -86,8 +88,11 @@ TEST_CASE("parse_access_child")
       ". [2][3] ", L{"foo", "bar", L{"a", "b", "c", "d", "e"}}, {"d"});
   check_pattern(
       ". [0] [2] ", L{L{"a", "b", "c", "d", "e"}, "foo", "bar"}, {"c"});
-  check_pattern(". [0] [2] ", L{L{"a"}, "foo", "bar"}, {});
-  check_pattern(". [0] [2] ", L{"foo", "bar", L{"a", "b", "c", "d", "e"}}, {});
+  check_pattern(". [0] [2] ", L{L{"a"}, "foo", "bar"}, {V{}});
+  REQUIRE_THROWS_AS(
+      check_pattern(
+          ". [0] [2] ", L{"foo", "bar", L{"a", "b", "c", "d", "e"}}, {}),
+      jk::error);
 }
 
 TEST_CASE("sequence")
@@ -110,7 +115,7 @@ TEST_CASE("iterate in sequence")
       {"a", "b", "c", "d", "e"});
 
   check_pattern(
-      ". [] | . [2] ",
+      ". [] | . [2]? ",
       L{"a", L{0., 1., 2., 3., 4., 5.}, L{"a", "b", "c", "d", "e"}},
       {2., "c"});
 
@@ -221,10 +226,14 @@ TEST_CASE("member access")
 
 TEST_CASE("member access with special chars")
 {
-    check_pattern(".foo_bar", M{{"a", 123}, {"foo_bar", 456}, {"bar", 789}}, {456});
-    check_pattern(".\"foo_bar\"", M{{"a", 123}, {"foo_bar", 456}, {"bar", 789}}, {456});
-    check_pattern(".\"foo.bar\"", M{{"a", 123}, {"foo.bar", 456}, {"bar", 789}}, {456});
-    check_pattern(".\"foo bar\"", M{{"a", 123}, {"foo bar", 456}, {"bar", 789}}, {456});
+  check_pattern(
+      ".foo_bar", M{{"a", 123}, {"foo_bar", 456}, {"bar", 789}}, {456});
+  check_pattern(
+      ".\"foo_bar\"", M{{"a", 123}, {"foo_bar", 456}, {"bar", 789}}, {456});
+  check_pattern(
+      ".\"foo.bar\"", M{{"a", 123}, {"foo.bar", 456}, {"bar", 789}}, {456});
+  check_pattern(
+      ".\"foo bar\"", M{{"a", 123}, {"foo bar", 456}, {"bar", 789}}, {456});
 }
 
 TEST_CASE("comma sequence ")
@@ -265,7 +274,7 @@ TEST_CASE("comma")
   check_pattern(
       "[ .[][1,2] ] ",
       L{L{"a", "b", "c"}, L{"d", "e", "f"}},
-      L{V{L{"b", "c", "e", "f"}}});
+      L{V{L{"b", "e", "c", "f"}}});
 
   check_pattern(
       "[ .[][1,2] ] | .[0] ", L{L{"a", "b", "c"}, L{"d", "e", "f"}}, L{"b"});
@@ -358,7 +367,7 @@ TEST_CASE("recurse and get instance")
       {"y", M{{"foo", 789}}},
   };
 
-  check_pattern(".. | .instance", object, L{123, 456});
+  check_pattern(".. | .instance? | values", object, L{123, 456});
 }
 
 TEST_CASE("array range and iteration")
@@ -376,4 +385,27 @@ TEST_CASE("array range and iteration")
        }}};
 
   check_pattern("[ .foo[2:5][].instance ]", object, L{V{L{2, 3, 4}}});
+}
+
+TEST_CASE("comments respect continuation and string boundaries")
+{
+  check_pattern(
+      R"jq([
+        1,
+        # skip next line \
+        2,
+        3,
+        # two backslashes do not continue \\
+        4,
+        "literal # text"
+      ])jq",
+      V{},
+      L{V{L{1, 3, 4, "literal # text"}}});
+  check_pattern(
+      R"jq("value=\(
+        # inside interpolation
+        .state
+      )")jq",
+      M{{"state", "s2"}},
+      L{"value=s2"});
 }

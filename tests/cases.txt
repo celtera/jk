@@ -327,3 +327,84 @@ length	3.7
 "x" * -1	null
 "x" * 1	null
 "x" * 2.7	null
+
+# --- semantic regression boundaries ---
+select(.state == "s2")	{"action":"back","state":"s2"}
+select(.state != "s2")	{"action":"back","state":"s2"}
+.[] | select(.state == "s2")	[{"state":"s1"},{"state":"s2","id":1},{"state":"s2","id":2}]
+(1/0) // 9	null
+(1,1/0) // 9	null
+[.a.b?]	42
+[.a.b?]	{"a":42}
+map(. + 1)	{"a":1,"b":2}
+to_entries	[10,20]
+9007199254740993 == 9007199254740992	null
+9007199254740993 > 9007199254740992.0	null
+sqrt == 7	-1
+[sqrt] == [7]	-1
+sqrt < 7	-1
+-9223372036854775808 % -1	null
+split("")	"é𝄞"
+select(true,true)	{"state":"s2"}
+false and error(1)	null
+true or error(1)	null
+
+# --- conditionals, error scope and stream multiplicity ---
+if .state == "s2" then .action else empty end	{"action":"back","state":"s2"}
+[if (true,false,null,0,"",[],{}) then .x else .y end]	{"x":1,"y":2}
+if empty then error("unreachable") else error("unreachable") end	null
+if false then error(1) elif true then . else error(2) end	{"a":1}
+if false then 1 elif false then 2 end	{"a":1}
+[if .[] then if .[0] then "yes" else "no" end else "outer" end]	[true,false]
+try (1,error(2),3) catch . + 10	null
+try error({code:42}) catch .code	null
+[try error(null) catch ., try error(false) catch .]	null
+try (try error({code:42}) catch error(.)) catch .code	null
+try 1 + error(2)	null
+try error(1) + 2 catch .	null
+if true then 1	null
+if true 1 else 2 end	null
+
+# --- lazy filtering and semicolon argument boundaries ---
+[any(empty; .), all(empty; .)]	null
+[any(. > 1), all(. > 1)]	[1,2,3]
+any((true,error("unreachable")); .)	null
+all((false,error("unreachable")); .)	null
+[any(.[]; empty), all(.[]; empty)]	[1,2]
+isempty(1,error("unreachable"))	null
+first(1,error("unreachable"))	null
+[last(empty),last(1,2,3)]	null
+limit(2; 1,2,error("unreachable"))	null
+limit(0; error("unreachable"))	null
+[limit((0,1,2); .[])]	[10,20,30]
+[limit(1.5;1,2,3),skip(1.5;1,2,3)]	null
+skip(-1;1)	null
+[nth(-1),nth(1.5),nth(1.5;.[])]	[10,20,30]
+nth(-1;1,2)	null
+[first(empty),nth(9;1,2),skip(5;1,2)]	null
+[range((0,1);(3,4);(1,2))]	null
+[range(0;3;0),range(1.5;4;0.75),range(0;-3;-1)]	null
+range(0;2;"x")	null
+range(null)	null
+select(1;2)	null
+
+# --- full expression grammar and Unicode slices ---
+{x: .[] | . + 1}	[1,2]
+.a[.lo:.hi]	{"a":[0,1,2,3],"lo":1,"hi":3}
+.[(0,1):(2,3)]	[0,1,2,3]
+(.[0],.[1])[0,1]	[[10,11],[20,21]]
+.[1:3]	"aé𝄞z"
+.[1:length-1]	"aé𝄞z"
+"state=\(.state), action=\(.action)"	{"action":"back","state":"s2"}
+"x=\(1,2);y=\(3,4)"	null
+"outer \("inner \(.)")"	7
+"value=\(if . then "yes" else "no" end)"	false
+{("k\(1,2)"): .}	7
+."k\(1,2)"	{"k1":10,"k2":20}
+. # trailing comment	42
+"bad\q"	null
+"bad\uD800"	null
+[-9007199254740993 == -9007199254740992, - 9007199254740993 < -9007199254740992]	null
+{a:(1,error("boom"))}	null
+first({a:(1,error("boom"))})	null
+try {a:(1,error("boom"))} catch .	null

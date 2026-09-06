@@ -1,9 +1,13 @@
 #pragma once
+#include <jk/config.hpp>
+
 #include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <version>
+
+#include <string_view>
 
 /**
  * \file charconv.hpp
@@ -29,7 +33,7 @@ namespace jk
 {
 
 //! Parse a complete number, rejecting anything left over.
-[[nodiscard]] inline std::optional<double> parse_number(std::string_view s) noexcept
+[[nodiscard]] inline std::optional<double> parse_number(std::string_view s)
 {
 #if defined(JK_HAS_OSSIA_CHARCONV)
   return ossia::parse_strict<double>(s);
@@ -38,18 +42,18 @@ namespace jk
   const auto begin = s.data();
   const auto end = s.data() + s.size();
   const auto [ptr, ec] = std::from_chars(begin, end, out);
-  if(ec != std::errc{} || ptr != end)
+  if (ec != std::errc{} || ptr != end)
     return std::nullopt;
   return out;
 #else
   // strtod is the only portable fallback; it also accepts leading space and
   // hex, so the result is checked against the whole input.
-  if(s.empty())
+  if (s.empty())
     return std::nullopt;
-  const std::string tmp{s};
+  const config::string tmp{s.data(), s.size()};
   char* last{};
   const double out = std::strtod(tmp.c_str(), &last);
-  if(last != tmp.c_str() + tmp.size())
+  if (last != tmp.c_str() + tmp.size())
     return std::nullopt;
   return out;
 #endif
@@ -57,7 +61,9 @@ namespace jk
 
 //! Append the shortest representation that reads back as the same double,
 //! which is the form jq emits.
-inline void append_shortest(double d, std::string& out)
+template <typename Traits, typename Allocator>
+inline void
+append_shortest(double d, std::basic_string<char, Traits, Allocator>& out)
 {
 #if defined(__cpp_lib_to_chars)
   char buf[40];
@@ -67,10 +73,10 @@ inline void append_shortest(double d, std::string& out)
   // %.17g always round-trips but is often longer than necessary; try the
   // shorter precisions first and keep the first that reads back identically.
   char buf[40];
-  for(int prec = 15; prec <= 17; prec++)
+  for (int prec = 15; prec <= 17; prec++)
   {
     const auto n = std::snprintf(buf, sizeof(buf), "%.*g", prec, d);
-    if(n > 0 && std::strtod(buf, nullptr) == d)
+    if (n > 0 && std::strtod(buf, nullptr) == d)
     {
       out.append(buf, n);
       return;

@@ -1,8 +1,9 @@
 #pragma once
+#include <jk/memory.hpp>
 #include <jk/value.hpp>
 
-#include <functional>
 #include <exception>
+#include <optional>
 #include <utility>
 
 #if __has_include(<avnd/common/coroutines.hpp>)
@@ -25,6 +26,41 @@ using coroutine_handle = std::experimental::coroutine_handle<T>;
 
 namespace jk
 {
+//! A result is valid until its producer advances or is destroyed. Forwarding
+//! preserves both the borrow and, when present, the original owned storage.
+template <typename T>
+class yielded
+{
+public:
+  yielded() = default;
+  explicit yielded(const T& value, T* owned = nullptr) noexcept
+      : m_value{&value}
+      , m_owned{owned}
+  {
+  }
+
+  const T& get() const noexcept { return *m_value; }
+
+  //! Consume once when retaining a result beyond the next producer resume.
+  T take()
+  {
+    if (m_owned)
+      return std::move(*m_owned);
+    return *m_value;
+  }
+
+  //! Detach from all evaluation storage before crossing an output boundary.
+  T persist() const
+  {
+    allocation_scope persistent{nullptr};
+    return *m_value;
+  }
+
+private:
+  const T* m_value{};
+  T* m_owned{};
+};
+
 // FIXME replace with std::generator when it's out
 template <typename Out>
 class generator
@@ -32,7 +68,21 @@ class generator
 public:
   struct promise_type
   {
-    Out data;
+    // A user-declared constructor prevents aggregate initialization from
+    // copying a coroutine's input into its promise before the first resume.
+    promise_type() = default;
+
+    static void* operator new(std::size_t size)
+    {
+      return allocate_frame(size, alignof(promise_type));
+    }
+    static void operator delete(void* pointer, std::size_t) noexcept
+    {
+      deallocate_frame(pointer);
+    }
+
+    std::optional<Out> owned;
+    yielded<Out> current;
     generator get_return_object()
     {
       return generator{handle::from_promise(*this)};
@@ -41,11 +91,25 @@ public:
     static std::suspend_always initial_suspend() noexcept { return {}; }
     static std::suspend_always final_suspend() noexcept { return {}; }
 
-    template <typename T>
-    std::suspend_always yield_value(T&& value) noexcept
+    std::suspend_always yield_value(const Out& value) noexcept
     {
-      data = std::move(value);
-      return std::suspend_always{};
+      owned.reset();
+      current = yielded<Out>{value};
+      return {};
+    }
+
+    std::suspend_always yield_value(Out&& value)
+    {
+      owned.emplace(std::move(value));
+      current = yielded<Out>{*owned, &*owned};
+      return {};
+    }
+
+    std::suspend_always yield_value(const yielded<Out>& value) noexcept
+    {
+      owned.reset();
+      current = value;
+      return {};
     }
 
     void return_void() noexcept { }
@@ -55,7 +119,10 @@ public:
     //! program - and a coroutine that aborts on any exception would take the
     //! host process down with it on something as ordinary as bad_alloc.
     std::exception_ptr exception{};
-    void unhandled_exception() noexcept { exception = std::current_exception(); }
+    void unhandled_exception() noexcept
+    {
+      exception = std::current_exception();
+    }
   };
 
   using handle = std::coroutine_handle<promise_type>;
@@ -107,11 +174,11 @@ public:
     //! exception has to be surfaced when the consumer next looks at it.
     void rethrow_if_failed() const
     {
-      if(m_coroutine && m_coroutine.done())
-        if(auto& e = m_coroutine.promise().exception)
+      if (m_coroutine && m_coroutine.done())
+        if (auto& e = m_coroutine.promise().exception)
           std::rethrow_exception(std::exchange(e, {}));
     }
-    auto& operator*() const noexcept { return m_coroutine.promise(); }
+    auto& operator*() const noexcept { return m_coroutine.promise().current; }
     bool operator==(std::default_sentinel_t) const noexcept
     {
       return !m_coroutine || m_coroutine.done();
@@ -140,11 +207,6 @@ public:
 
 private:
   handle m_coroutine;
-};
-
-struct action_fun : std::function<generator<value>(const value& in)>
-{
-  std::string name;
 };
 
 }
