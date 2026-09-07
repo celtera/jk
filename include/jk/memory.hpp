@@ -14,13 +14,17 @@ namespace jk
 {
 namespace detail
 {
-inline thread_local std::pmr::memory_resource* selected_resource
-    = std::pmr::new_delete_resource();
+// Constant-initialised on purpose: a dynamic initialiser would require a TLS
+// init function, which MinGW emits outside any COMDAT group and therefore
+// duplicates in every translation unit that includes this header. The null
+// state means "unselected" and current_resource() supplies the default.
+inline thread_local std::pmr::memory_resource* selected_resource = nullptr;
 }
 
 [[nodiscard]] inline std::pmr::memory_resource* current_resource() noexcept
 {
-  return detail::selected_resource;
+  auto* const resource = detail::selected_resource;
+  return resource ? resource : std::pmr::new_delete_resource();
 }
 
 // Selection is local to this thread and does not change PMR's global default.
@@ -30,8 +34,7 @@ public:
   explicit allocation_scope(std::pmr::memory_resource* resource) noexcept
       : previous_{current_resource()}
   {
-    detail::selected_resource
-        = resource ? resource : std::pmr::new_delete_resource();
+    detail::selected_resource = resource;
   }
 
   ~allocation_scope() { detail::selected_resource = previous_; }
